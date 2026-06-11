@@ -10,6 +10,30 @@ const BASE = `http://localhost:${PORT}`;
 
 let serverProc;
 
+// Test users registered in before(); unique per run since the DB persists.
+const RUN = Date.now();
+const userA = { email: `owner-${RUN}@test.dev`, password: 'password-123', name: 'Owner' };
+const userB = { email: `other-${RUN}@test.dev`, password: 'password-456', name: 'Other' };
+
+async function register(user) {
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(user)
+  });
+  assert.equal(res.status, 201);
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const { user: created } = await res.json();
+  return { cookie, apiKey: created.apiKey, user: created };
+}
+
+function authed(creds, extra = {}) {
+  return { Cookie: creds.cookie, 'Content-Type': 'application/json', ...extra };
+}
+
+let credsA;
+let credsB;
+
 before(async () => {
   serverProc = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
     env: { ...process.env, PORT: String(PORT) },
@@ -25,6 +49,8 @@ before(async () => {
     });
     serverProc.on('exit', (code) => reject(new Error(`Server exited early (${code})`)));
   });
+  credsA = await register(userA);
+  credsB = await register(userB);
 });
 
 after(() => {
@@ -76,18 +102,19 @@ test('dataset create, fetch, and delete round-trip', async () => {
   };
   const createRes = await fetch(`${BASE}/api/datasets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authed(credsA),
     body: JSON.stringify({ id: 'test-suite-ds', name: 'Test dataset', geojson })
   });
   assert.equal(createRes.status, 201);
   const { dataset: meta } = await createRes.json();
   assert.equal(meta.id, 'test-suite-ds');
   assert.equal(meta.featureCount, 1);
+  assert.equal(meta.owner, userA.email);
 
   const { dataset } = await (await fetch(`${BASE}/api/datasets/test-suite-ds`)).json();
   assert.equal(dataset.geojson.features[0].properties.name, 'A');
 
-  const delRes = await fetch(`${BASE}/api/datasets/test-suite-ds`, { method: 'DELETE' });
+  const delRes = await fetch(`${BASE}/api/datasets/test-suite-ds`, { method: 'DELETE', headers: authed(credsA) });
   assert.equal(delRes.status, 200);
   const missing = await fetch(`${BASE}/api/datasets/test-suite-ds`);
   assert.equal(missing.status, 404);
@@ -96,10 +123,95 @@ test('dataset create, fetch, and delete round-trip', async () => {
 test('rejects invalid GeoJSON uploads', async () => {
   const res = await fetch(`${BASE}/api/datasets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authed(credsA),
     body: JSON.stringify({ geojson: { type: 'NotGeoJSON' } })
   });
   assert.equal(res.status, 400);
+});
+
+test('publishing and deleting require authentication', async () => {
+  const geojson = { type: 'FeatureCollection', features: [] };
+  const anon = await fetch(`${BASE}/api/datasets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geojson })
+  });
+  assert.equal(anon.status, 401);
+
+  const anonDelete = await fetch(`${BASE}/api/datasets/acme-locations`, { method: 'DELETE' });
+  assert.equal(anonDelete.status, 401);
+});
+
+test('auth flow: me, API key bearer auth, owner-only delete, logout', async () => {
+  // Session cookie identifies the user
+  const me = await (await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: credsA.cookie } })).json();
+  assert.equal(me.user.email, userA.email);
+
+  // API key works as a Bearer token (server-to-server / SDK usage)
+  const viaKey = await fetch(`${BASE}/api/datasets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${credsA.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'owned-ds', geojson: { type: 'FeatureCollection', features: [] } })
+  });
+  assert.equal(viaKey.status, 201);
+
+  // Another user cannot delete a dataset they don't own
+  const forbidden = await fetch(`${BASE}/api/datasets/owned-ds`, { method: 'DELETE', headers: authed(credsB) });
+  assert.equal(forbidden.status, 403);
+
+  // The owner can
+  const ok = await fetch(`${BASE}/api/datasets/owned-ds`, { method: 'DELETE', headers: authed(credsA) });
+  assert.equal(ok.status, 200);
+
+  // Wrong password is rejected
+  const badLogin = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: userA.email, password: 'wrong-password' })
+  });
+  assert.equal(badLogin.status, 401);
+
+  // Logout invalidates the session
+  const fresh = await register({ email: `logout-${RUN}@test.dev`, password: 'password-789' });
+  await fetch(`${BASE}/api/auth/logout`, { method: 'POST', headers: { Cookie: fresh.cookie } });
+  const after = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: fresh.cookie } });
+  assert.equal(after.status, 401);
+});
+
+test('registration validates email and password', async () => {
+  const badEmail = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email', password: 'password-123' })
+  });
+  assert.equal(badEmail.status, 400);
+
+  const shortPw = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: `short-${RUN}@test.dev`, password: 'short' })
+  });
+  assert.equal(shortPw.status, 400);
+
+  const dupe = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userA)
+  });
+  assert.equal(dupe.status, 409);
+});
+
+test('database logging: request log stats require auth and count traffic', async () => {
+  const anon = await fetch(`${BASE}/api/stats`);
+  assert.equal(anon.status, 401);
+
+  const res = await fetch(`${BASE}/api/stats`, { headers: { Cookie: credsA.cookie } });
+  assert.equal(res.status, 200);
+  const { stats } = await res.json();
+  assert.ok(stats.totalRequests > 0, 'request log should have entries');
+  assert.ok(stats.totalUsers >= 2, 'users should be counted');
+  assert.ok(Array.isArray(stats.recentRequests) && stats.recentRequests.length > 0);
+  assert.ok(stats.recentRequests[0].path.startsWith('/api/'));
 });
 
 test('map spec endpoint composes style + map type + dataset', async () => {
@@ -127,10 +239,29 @@ test('embed page renders HTML wired to the SDK', async () => {
   assert.ok(html.includes('"dataset":"acme-locations"'));
 });
 
-test('studio app and SDK are served', async () => {
-  const app = await fetch(`${BASE}/`);
-  assert.equal(app.status, 200);
-  assert.ok((await app.text()).includes('Atlas'));
+test('landing, studio, docs, data catalog, and SDK are served', async () => {
+  const landing = await fetch(`${BASE}/`);
+  assert.equal(landing.status, 200);
+  const landingHTML = await landing.text();
+  assert.ok(landingHTML.includes('Atlas'));
+  assert.ok(landingHTML.includes('/studio'), 'landing should link to the studio');
+
+  const studio = await fetch(`${BASE}/studio`);
+  assert.equal(studio.status, 200);
+  const studioHTML = await studio.text();
+  assert.ok(studioHTML.includes('basemap-picker'));
+  assert.ok(studioHTML.includes('auth-dialog'), 'studio should include the auth dialog');
+
+  const docs = await fetch(`${BASE}/docs`);
+  assert.equal(docs.status, 200);
+  const docsHTML = await docs.text();
+  assert.ok(docsHTML.includes('REST API reference'));
+  assert.ok(docsHTML.includes('SDK reference'));
+
+  const data = await fetch(`${BASE}/data`);
+  assert.equal(data.status, 200);
+  assert.ok((await data.text()).includes('Open Data Catalog'));
+
   const sdk = await fetch(`${BASE}/sdk/atlas-sdk.js`);
   assert.equal(sdk.status, 200);
 });
@@ -165,7 +296,7 @@ test('datasets are open data: default license, public log, raw download', async 
   };
   const createRes = await fetch(`${BASE}/api/datasets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authed(credsA),
     body: JSON.stringify({ id: 'opendata-test', name: 'Open data test', geojson })
   });
   const { dataset: meta } = await createRes.json();
@@ -179,27 +310,30 @@ test('datasets are open data: default license, public log, raw download', async 
   assert.equal(raw.type, 'FeatureCollection');
   assert.equal(raw.features.length, 1);
 
-  await fetch(`${BASE}/api/datasets/opendata-test`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/datasets/opendata-test`, { method: 'DELETE', headers: authed(credsA) });
 
-  // Both events are recorded in the public activity log
+  // Both events are recorded in the database-backed public activity log,
+  // attributed to the publishing user.
   const { events } = await (await fetch(`${BASE}/api/log`)).json();
   const created = events.find((e) => e.event === 'dataset.created' && e.dataset === 'opendata-test');
   const deleted = events.find((e) => e.event === 'dataset.deleted' && e.dataset === 'opendata-test');
   assert.ok(created, 'dataset.created not logged');
   assert.equal(created.license, 'CC BY 4.0');
+  assert.equal(created.user, userA.email);
   assert.ok(deleted, 'dataset.deleted not logged');
+  assert.ok(events.some((e) => e.event === 'user.registered'), 'registrations should be logged');
 });
 
 test('custom license is respected on upload', async () => {
   const geojson = { type: 'FeatureCollection', features: [] };
   const res = await fetch(`${BASE}/api/datasets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authed(credsA),
     body: JSON.stringify({ id: 'license-test', geojson, license: 'ODbL' })
   });
   const { dataset } = await res.json();
   assert.equal(dataset.license, 'ODbL');
-  await fetch(`${BASE}/api/datasets/license-test`, { method: 'DELETE' });
+  await fetch(`${BASE}/api/datasets/license-test`, { method: 'DELETE', headers: authed(credsA) });
 });
 
 test('embed page passes legend and title options to the SDK', async () => {

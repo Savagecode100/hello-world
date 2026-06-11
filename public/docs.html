@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atlas Documentation</title>
+  <style>
+    :root { --bg:#0f172a; --bg-2:#1e293b; --line:#334155; --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15.5px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    nav.toc {
+      width: 250px; min-width: 250px; height: 100vh; position: sticky; top: 0; overflow-y: auto;
+      border-right: 1px solid var(--line); padding: 22px 18px;
+    }
+    nav.toc .logo { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    nav.toc .logo span { color: var(--accent); font-weight: 300; }
+    nav.toc .back { font-size: 13px; color: var(--muted); display: block; margin-bottom: 18px; }
+    nav.toc h4 { margin: 18px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+    nav.toc a.item { display: block; padding: 3px 0; font-size: 14px; color: var(--text); }
+    nav.toc a.item:hover { color: var(--accent); text-decoration: none; }
+    main { flex: 1; max-width: 840px; padding: 30px 44px 80px; }
+    h1 { font-size: 32px; margin: 8px 0 6px; }
+    h2 { font-size: 23px; margin: 44px 0 10px; padding-top: 18px; border-top: 1px solid var(--line); }
+    h3 { font-size: 17px; margin: 26px 0 8px; }
+    p, li { color: #cbd5e1; }
+    .lead { color: var(--muted); font-size: 17px; }
+    code { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 13px; }
+    pre { background: #0a0f1e; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+    pre code { background: none; border: none; padding: 0; color: #93c5fd; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 12px; border: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--bg-2); }
+    .note { background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.35); border-radius: 10px; padding: 12px 16px; font-size: 14px; }
+    @media (max-width: 760px) { nav.toc { display: none; } main { padding: 24px; } }
+  </style>
+</head>
+<body>
+  <nav class="toc">
+    <div class="logo">Atlas <span>Docs</span></div>
+    <a class="back" href="/">← back to atlas</a>
+    <h4>Start here</h4>
+    <a class="item" href="#getting-started">Getting started</a>
+    <a class="item" href="#studio">Using the Studio</a>
+    <a class="item" href="#map-types">Map types &amp; legends</a>
+    <a class="item" href="#sharing">Sharing &amp; embedding</a>
+    <h4>Accounts</h4>
+    <a class="item" href="#auth">Authentication</a>
+    <a class="item" href="#open-data">Open data policy</a>
+    <h4>Developers</h4>
+    <a class="item" href="#api">REST API reference</a>
+    <a class="item" href="#sdk">SDK reference</a>
+    <a class="item" href="#embed-params">Embed URL parameters</a>
+    <a class="item" href="#architecture">Architecture</a>
+  </nav>
+
+  <main>
+    <h1>Atlas Documentation</h1>
+    <p class="lead">
+      Everything you need to make maps in the <a href="/studio">Studio</a>, publish open
+      datasets, and render Atlas maps inside your own applications with the REST API and SDK.
+    </p>
+
+    <h2 id="getting-started">Getting started</h2>
+    <pre><code>git clone &lt;this repo&gt;
+npm start          # → http://localhost:8787
+npm test           # run the test suite</code></pre>
+    <p>
+      Atlas needs only Node 18+ (Node 22+ recommended — accounts and logging use the built-in
+      SQLite database). There are no npm dependencies and no API keys for basemaps: all seven
+      basemap styles use open, key-free tile services. A sample dataset
+      (<code>acme-locations</code>) is seeded on first run so every feature is demoable immediately.
+    </p>
+
+    <h2 id="studio">Using the Studio</h2>
+    <p>Open <a href="/studio">/studio</a>. The sidebar is your workflow, top to bottom:</p>
+    <ol>
+      <li><strong>Account</strong> — sign in (or register) to publish datasets and get an API key. Browsing, importing, and exporting work without an account.</li>
+      <li><strong>Find a place</strong> — type any country, city, address, or landmark. Picking a result flies the map there.</li>
+      <li><strong>Basemap style</strong> — switch among Streets, Bright, Light, Dark, Satellite, Terrain, and OpenStreetMap. Your data layers survive style switches.</li>
+      <li><strong>Data</strong> — import a CSV or GeoJSON file, or add a published dataset from the server. CSV latitude/longitude columns are auto-detected (<code>lat</code>/<code>latitude</code>/<code>y</code> and <code>lng</code>/<code>lon</code>/<code>longitude</code>/<code>x</code>); all other columns become feature properties.</li>
+      <li><strong>Layers on map</strong> — each layer has its own map type and value property. Switch them live; the legend updates automatically.</li>
+      <li><strong>Map output</strong> — set a title, toggle the legend, fit to data, export a PNG, or open Share &amp; embed.</li>
+    </ol>
+    <div class="note">
+      <strong>Example workflow:</strong> search "United States", import
+      <code>locations.csv</code> from your CRM, switch the layer to <em>Bubble map</em> with
+      <code>revenue</code> as the value property, type a title, and export a PNG — legend included.
+    </div>
+
+    <h2 id="map-types">Map types &amp; legends</h2>
+    <table>
+      <tr><th>Map type</th><th>Geometry</th><th>Best for</th><th>Legend shows</th></tr>
+      <tr><td><code>pins</code></td><td>points</td><td>Small location lists with popups</td><td>Marker + feature count</td></tr>
+      <tr><td><code>clusters</code></td><td>points</td><td>Hundreds–thousands of locations</td><td>Cluster size steps</td></tr>
+      <tr><td><code>heatmap</code></td><td>points</td><td>Density and concentration</td><td>Color ramp (low → high)</td></tr>
+      <tr><td><code>bubble</code></td><td>points</td><td>Values per location (revenue, headcount…)</td><td>Circle sizes with real min/max</td></tr>
+      <tr><td><code>choropleth</code></td><td>polygons</td><td>Values per region (states, counties…)</td><td>Color ramp with real min/max</td></tr>
+      <tr><td><code>route</code></td><td>lines</td><td>Routes, corridors, networks</td><td>Line + stop symbols</td></tr>
+    </table>
+    <p>
+      Legends are generated automatically from each layer's map type, value property, and the
+      actual minimum/maximum in your data. They render as an on-map overlay (toggleable) and are
+      <strong>always composited into PNG exports</strong>, together with the map title and basemap attribution.
+    </p>
+
+    <h2 id="sharing">Sharing &amp; embedding</h2>
+    <p>The Studio's <em>Share &amp; embed</em> dialog produces three artifacts, all reproducing your exact view, style, map type, title, and legend:</p>
+    <ul>
+      <li><strong>Shareable link</strong> — a full-page interactive map (<code>/embed?…</code>). Recipients can pan, zoom, and click popups.</li>
+      <li><strong>iframe snippet</strong> — paste into any website or CMS; zero JavaScript required.</li>
+      <li><strong>SDK snippet</strong> — for embedding the map natively in your own application.</li>
+    </ul>
+    <p>Sharing data layers requires the dataset to be <em>published</em> first (a link can't carry your local file). The dialog detects unpublished layers and tells you.</p>
+
+    <h2 id="auth">Authentication</h2>
+    <p>Atlas has two credential types:</p>
+    <ul>
+      <li><strong>Session cookie</strong> — created by signing in via the Studio (or <code>POST /api/auth/login</code>). HttpOnly, 30-day expiry. Used by browsers.</li>
+      <li><strong>API key</strong> — issued at registration; view it via the Studio's <em>Show my API key</em>. Send it as <code>Authorization: Bearer &lt;key&gt;</code> for server-to-server calls.</li>
+    </ul>
+    <p>Passwords are hashed with scrypt and a per-user random salt; comparisons are timing-safe. Reading data never requires auth; <strong>publishing and deleting datasets do</strong>. Only a dataset's owner may delete it.</p>
+    <pre><code># Register (also signs you in and returns your API key)
+curl -X POST http://localhost:8787/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"s3cret-pass","name":"You"}'
+
+# Publish a dataset with your API key
+curl -X POST http://localhost:8787/api/datasets \
+  -H "Authorization: Bearer atlas_..." \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My stores","geojson":{"type":"FeatureCollection","features":[]}}'</code></pre>
+
+    <h2 id="open-data">Open data policy</h2>
+    <p>Every dataset published to an Atlas server is open data:</p>
+    <ul>
+      <li><strong>Licensed</strong> — CC BY 4.0 by default; override with a <code>license</code> field on upload.</li>
+      <li><strong>Cataloged</strong> — listed publicly at <a href="/data">/data</a> with license, owner-published provenance, and links.</li>
+      <li><strong>Downloadable</strong> — raw GeoJSON at <code>GET /api/datasets/:id/download</code>, no auth required.</li>
+      <li><strong>Logged</strong> — dataset and account events are recorded in the database-backed public activity log (<code>GET /api/log</code>). API requests are also logged server-side (<code>GET /api/stats</code>, signed-in users).</li>
+    </ul>
+    <p>The Studio warns users that publishing makes data public <em>before</em> anything is uploaded.</p>
+
+    <h2 id="api">REST API reference</h2>
+    <p>All endpoints return JSON with permissive CORS. Auth-required endpoints accept a session cookie or <code>Authorization: Bearer &lt;api key&gt;</code>.</p>
+    <table>
+      <tr><th>Endpoint</th><th>Auth</th><th>Description</th></tr>
+      <tr><td><code>GET /api/health</code></td><td>—</td><td>Service status and version</td></tr>
+      <tr><td><code>GET /api/styles</code></td><td>—</td><td>Basemap style catalog (id, name, MapLibre style)</td></tr>
+      <tr><td><code>GET /api/maptypes</code></td><td>—</td><td>Preloaded map type catalog</td></tr>
+      <tr><td><code>GET /api/geocode?q=Tokyo&amp;limit=5</code></td><td>—</td><td>Geocode any place in the world</td></tr>
+      <tr><td><code>GET /api/datasets</code></td><td>—</td><td>List datasets (metadata, licenses, owners)</td></tr>
+      <tr><td><code>POST /api/datasets</code></td><td>✓</td><td>Publish: <code>{ id?, name?, description?, license?, source?, geojson }</code></td></tr>
+      <tr><td><code>GET /api/datasets/:id</code></td><td>—</td><td>Dataset with its GeoJSON</td></tr>
+      <tr><td><code>GET /api/datasets/:id/download</code></td><td>—</td><td>Raw GeoJSON download (open data)</td></tr>
+      <tr><td><code>DELETE /api/datasets/:id</code></td><td>✓ owner</td><td>Delete a dataset you published</td></tr>
+      <tr><td><code>GET /api/log?limit=100</code></td><td>—</td><td>Public activity log (datasets &amp; accounts), newest first</td></tr>
+      <tr><td><code>GET /api/stats</code></td><td>✓</td><td>Request-log stats: totals and recent API requests</td></tr>
+      <tr><td><code>GET /api/map?style&amp;maptype&amp;dataset&amp;value&amp;center&amp;zoom</code></td><td>—</td><td>Renderable map spec + its embed URL</td></tr>
+      <tr><td><code>POST /api/auth/register</code></td><td>—</td><td><code>{ email, password, name? }</code> → user + session cookie</td></tr>
+      <tr><td><code>POST /api/auth/login</code></td><td>—</td><td><code>{ email, password }</code> → user + session cookie</td></tr>
+      <tr><td><code>POST /api/auth/logout</code></td><td>cookie</td><td>End the session</td></tr>
+      <tr><td><code>GET /api/auth/me</code></td><td>✓</td><td>Current user (incl. your API key)</td></tr>
+    </table>
+
+    <h2 id="sdk">SDK reference</h2>
+    <p>One file, no build step: <code>&lt;script src="/sdk/atlas-sdk.js"&gt;&lt;/script&gt;</code>. It loads MapLibre GL automatically. In Node: <code>await import('./sdk/atlas-sdk.js')</code> then use <code>globalThis.Atlas</code>.</p>
+    <h3>Atlas.createMap(container, options) → Promise&lt;AtlasMap&gt;</h3>
+    <table>
+      <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>baseUrl</code></td><td><code>''</code></td><td>Atlas server origin (for cross-origin embedding)</td></tr>
+      <tr><td><code>style</code></td><td><code>'streets'</code></td><td>Preset id, style URL, or MapLibre style object</td></tr>
+      <tr><td><code>mapType</code></td><td><code>'pins'</code></td><td><code>pins | clusters | heatmap | bubble | choropleth | route</code></td></tr>
+      <tr><td><code>dataset</code> / <code>data</code> / <code>dataUrl</code></td><td>—</td><td>Published dataset id, inline GeoJSON, or URL</td></tr>
+      <tr><td><code>valueProperty</code></td><td><code>null</code></td><td>Numeric property driving bubble size / heat weight / choropleth shade</td></tr>
+      <tr><td><code>title</code></td><td><code>null</code></td><td>Shown on the map and in PNG exports</td></tr>
+      <tr><td><code>legend</code></td><td><code>true</code></td><td>On-map legend overlay</td></tr>
+      <tr><td><code>center</code>, <code>zoom</code></td><td><code>[0,20]</code>, <code>2</code></td><td>Initial view (overridden by <code>fitData</code>)</td></tr>
+      <tr><td><code>fitData</code></td><td><code>true</code></td><td>Fit the view to the loaded data</td></tr>
+      <tr><td><code>interactive</code></td><td><code>true</code></td><td>Disable for static-feel embeds</td></tr>
+    </table>
+    <h3>AtlasMap methods</h3>
+    <p>
+      <code>addData(data, { mapType, valueProperty, name, fit })</code> ·
+      <code>removeData(id)</code> · <code>clearData()</code> ·
+      <code>setMapType(id, mapType, valueProperty)</code> ·
+      <code>setBasemap(styleIdOrUrlOrObject)</code> ·
+      <code>setTitle(text)</code> · <code>setLegendVisible(bool)</code> ·
+      <code>flyToPlace(query)</code> · <code>fitToData()</code> ·
+      <code>exportPNG(filename, { legend, title })</code> ·
+      <code>listLayersets()</code> · <code>remove()</code> ·
+      <code>.map</code> (the raw MapLibre map — full escape hatch)
+    </p>
+    <h3>Atlas.Client (browser &amp; Node)</h3>
+    <p>
+      <code>geocode(q, limit)</code> · <code>getStyles()</code> · <code>getMapTypes()</code> ·
+      <code>listDatasets()</code> · <code>getDataset(id)</code> ·
+      <code>createDataset(geojson, meta)</code> · <code>deleteDataset(id)</code> ·
+      <code>embedUrl(params)</code> · <code>health()</code>
+    </p>
+    <h3>Utilities</h3>
+    <p>
+      <code>Atlas.csvToGeoJSON(text)</code> — CSV → GeoJSON with lat/lng auto-detection ·
+      <code>Atlas.utils.buildLegend(layerset)</code> ·
+      <code>Atlas.utils.dataBounds(fc)</code> ·
+      <code>Atlas.utils.numericProperties(fc)</code> ·
+      <code>Atlas.utils.toFeatureCollection(g)</code> ·
+      <code>Atlas.utils.parseCSV(text)</code> ·
+      <code>Atlas.utils.formatNumber(n)</code>
+    </p>
+
+    <h2 id="embed-params">Embed URL parameters</h2>
+    <p><code>/embed?…</code> accepts:</p>
+    <table>
+      <tr><th>Param</th><th>Example</th><th>Description</th></tr>
+      <tr><td><code>dataset</code></td><td><code>acme-locations</code></td><td>Published dataset id</td></tr>
+      <tr><td><code>maptype</code></td><td><code>bubble</code></td><td>Map type preset</td></tr>
+      <tr><td><code>value</code></td><td><code>revenue_musd</code></td><td>Value property</td></tr>
+      <tr><td><code>style</code></td><td><code>dark</code></td><td>Basemap preset id</td></tr>
+      <tr><td><code>center</code></td><td><code>-96,38</code></td><td>lng,lat</td></tr>
+      <tr><td><code>zoom</code></td><td><code>4</code></td><td>Zoom level</td></tr>
+      <tr><td><code>title</code></td><td><code>Q3+Footprint</code></td><td>Map title overlay</td></tr>
+      <tr><td><code>legend</code></td><td><code>false</code></td><td>Hide the legend (default: shown)</td></tr>
+      <tr><td><code>interactive</code></td><td><code>false</code></td><td>Static-feel map</td></tr>
+    </table>
+
+    <h2 id="architecture">Architecture</h2>
+    <pre><code>server/index.js     zero-dependency Node HTTP server: pages + REST API
+server/presets.js   basemap style + map type catalogs (extend here)
+server/db.js        SQLite (node:sqlite): users, sessions, activity & request logs
+server/auth.js      register / login / logout / me + request authentication
+server/seed/        built-in sample datasets, seeded into data/ on first run
+public/             landing (/), studio (/studio), docs (/docs), data catalog (/data)
+sdk/atlas-sdk.js    the developer kit: API client + map renderer (MapLibre GL)
+examples/           browser + Node integration examples
+data/               runtime state: dataset files + atlas.db (gitignored)</code></pre>
+    <p>
+      Rendering is MapLibre GL JS. Geocoding is proxied to OSM Nominatim with caching — respect
+      their <a href="https://operations.osmfoundation.org/policies/nominatim/">usage policy</a>
+      in production or point the proxy at your own geocoder. To extend Atlas: add basemaps and
+      map types in <code>server/presets.js</code>, layer renderers in
+      <code>LAYER_BUILDERS</code> in the SDK, and routes in <code>server/index.js</code>.
+    </p>
+  </main>
+</body>
+</html>

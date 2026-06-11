@@ -30,7 +30,7 @@
     Every dataset published to this Atlas server is <strong>open data</strong> — licensed for reuse
     (CC BY 4.0 unless stated otherwise), downloadable as raw GeoJSON, embeddable as an interactive
     map, and recorded in the public activity log below.
-    <a href="/">← Back to the studio</a>
+    <a href="/studio">← Back to the studio</a> · <a href="/docs">Docs</a>
   </p>
 
   <h2>Datasets</h2>
@@ -64,7 +64,7 @@
           '<td class="actions">' +
             '<a href="/api/datasets/' + encodeURIComponent(ds.id) + '/download">Download GeoJSON</a>' +
             '<a href="' + embed + '" target="_blank">Interactive map</a>' +
-            '<a href="/?dataset=' + encodeURIComponent(ds.id) + '">Open in studio</a>' +
+            '<a href="/studio?dataset=' + encodeURIComponent(ds.id) + '">Open in studio</a>' +
           '</td></tr>';
       });
       document.getElementById('dataset-rows').innerHTML =
@@ -76,6 +76,7 @@
         return '<div class="log-entry"><time>' + esc(e.at.replace('T', ' ').slice(0, 19)) + '</time>' +
           '<span><code>' + esc(e.event) + '</code> ' + esc(e.name || e.dataset || '') +
           (e.featureCount ? ' (' + esc(e.featureCount) + ' features, ' + esc(e.license || '') + ')' : '') +
+          (e.user ? ' <span class="muted">by ' + esc(e.user) + '</span>' : '') +
           '</span></div>';
       });
       document.getElementById('log-entries').innerHTML =

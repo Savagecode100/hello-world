@@ -6,7 +6,8 @@ datasets on top (e.g. every one of your company's locations), and ship the resul
 as an interactive map in the studio, a PNG export, an iframe embed, or a map rendered
 inside your own application via the SDK.
 
-No API keys, no build step, zero npm dependencies. Just Node 18+.
+No basemap API keys, no build step, zero npm dependencies. Just Node 22+
+(accounts and logging use the built-in `node:sqlite` database).
 
 ```bash
 npm start            # → http://localhost:8787
@@ -17,8 +18,12 @@ npm test             # run the API + SDK test suite
 
 | Piece | Where | What it does |
 |---|---|---|
-| **Atlas Studio** | `public/` → http://localhost:8787 | The visual map-making app |
-| **REST API** | `server/` → `/api/*` | Geocoding, styles, map types, datasets, map specs |
+| **Landing page** | `/` | Product overview with a live embedded map |
+| **Atlas Studio** | `/studio` | The visual map-making app |
+| **Documentation** | `/docs` | Full user + developer docs, served with the app |
+| **Open data catalog** | `/data` | Every published dataset: license, download, embed |
+| **REST API** | `/api/*` | Geocoding, styles, map types, datasets, auth, logs |
+| **User accounts** | `server/auth.js`, `server/db.js` | Registration, sessions, API keys (SQLite) |
 | **Atlas SDK** | `sdk/atlas-sdk.js` | Drop Atlas maps into any outside application |
 | **Embed endpoint** | `/embed?…` | Zero-JS iframe maps |
 | **Examples** | `examples/` | Browser embedding + Node API client |
@@ -59,16 +64,38 @@ Open http://localhost:8787 and you can:
 A sample dataset (`acme-locations` — 40 fictional company locations across the USA
 with revenue and headcount) ships preloaded so everything is demoable immediately.
 
+## Accounts, auth & API keys
+
+Browsing, importing, and exporting need no account. **Publishing and deleting
+datasets require sign-in**, and only a dataset's owner can delete it.
+
+- Register/sign in from the studio sidebar, or via `POST /api/auth/register` /
+  `POST /api/auth/login` (sets an HttpOnly session cookie, 30-day expiry).
+- Every account gets an **API key** (shown in the studio) for server-to-server
+  use: send `Authorization: Bearer <key>`, or pass `apiKey` to the SDK's `Client`.
+- Passwords are scrypt-hashed with per-user salts; comparisons are timing-safe.
+
+## Database logging (SQLite, built in)
+
+All server state about *who did what, when* lives in `data/atlas.db`
+(`node:sqlite` — still zero npm dependencies):
+
+- **Users & sessions** — accounts, scrypt password hashes, API keys, session tokens.
+- **Activity log** — every dataset publish/delete and account event, attributed
+  to the acting user. Public at `GET /api/log` and on the `/data` page.
+- **Request log** — every API and embed request (method, path, status, duration,
+  user). Signed-in users can read aggregates at `GET /api/stats`.
+
 ## Open data by design
 
 Every dataset published to an Atlas server is **open data**:
 
 - **Licensed** — CC BY 4.0 by default (override with a `license` field on upload).
-- **Cataloged** — http://localhost:8787/data.html lists every dataset with its
+- **Cataloged** — http://localhost:8787/data lists every dataset with its
   license, download link, interactive map, and an "open in studio" deep link.
 - **Downloadable** — raw GeoJSON at `GET /api/datasets/:id/download`, no auth, CORS open.
-- **Logged** — every dataset creation and deletion is appended to a public,
-  append-only activity log (`GET /api/log`, also rendered on the catalog page).
+- **Logged** — every dataset creation and deletion is recorded in the public,
+  database-backed activity log (`GET /api/log`, also rendered on the catalog page).
 
 The studio tells users this before they publish, so nothing becomes public silently.
 
@@ -82,12 +109,18 @@ All endpoints return JSON and send permissive CORS headers.
 | `GET /api/styles` | Basemap style catalog (id, name, MapLibre style) |
 | `GET /api/maptypes` | Preloaded map type catalog |
 | `GET /api/geocode?q=Tokyo&limit=5` | Geocode any place in the world |
-| `GET /api/datasets` | List stored datasets (with licenses) |
-| `POST /api/datasets` | Publish a dataset: `{ id?, name?, description?, license?, source?, geojson }` |
+| `GET /api/datasets` | List stored datasets (with licenses and owners) |
+| `POST /api/datasets` | 🔐 Publish a dataset: `{ id?, name?, description?, license?, source?, geojson }` |
 | `GET /api/datasets/:id` | Fetch a dataset with its GeoJSON |
 | `GET /api/datasets/:id/download` | Raw GeoJSON download (open data) |
-| `DELETE /api/datasets/:id` | Delete a dataset |
-| `GET /api/log?limit=100` | Public activity log of all dataset events |
+| `DELETE /api/datasets/:id` | 🔐 Delete a dataset (owner only) |
+| `GET /api/log?limit=100` | Public activity log of dataset & account events |
+| `GET /api/stats` | 🔐 Request-log stats (totals + recent API requests) |
+| `POST /api/auth/register` | Create an account: `{ email, password, name? }` |
+| `POST /api/auth/login` / `POST /api/auth/logout` | Session management |
+| `GET /api/auth/me` | 🔐 Current user, including your API key |
+
+🔐 = requires a session cookie or `Authorization: Bearer <api key>`.
 | `GET /api/map?style=dark&maptype=bubble&dataset=acme-locations&value=revenue_musd&center=-96,38&zoom=4` | A renderable "map spec" (style + data + view) consumable by the SDK, plus its embed URL |
 | `GET /embed?…` (same params) | A full HTML page rendering that map — iframe it anywhere |
 
@@ -134,7 +167,10 @@ From Node (server-to-server — geocode, publish datasets, mint embed URLs):
 
 ```js
 await import('./sdk/atlas-sdk.js');
-const atlas = new globalThis.Atlas.Client({ baseUrl: 'http://localhost:8787' });
+const atlas = new globalThis.Atlas.Client({
+  baseUrl: 'http://localhost:8787',
+  apiKey: process.env.ATLAS_API_KEY   // from your account; needed for publishing
+});
 
 const [place] = await atlas.geocode('Paris, France');
 const ds = await atlas.createDataset(myGeoJSON, { name: 'EU Offices' });
@@ -152,8 +188,9 @@ See it all working: http://localhost:8787/examples/embed-example.html and
 - `AtlasMap`: `addData`, `removeData`, `clearData`, `setMapType`, `setBasemap`,
   `setTitle`, `setLegendVisible`, `flyToPlace`, `fitToData`,
   `exportPNG(filename, { legend, title })`, `listLayersets`, `remove`, `.map` (raw MapLibre)
-- `Atlas.Client`: `geocode`, `getStyles`, `getMapTypes`, `listDatasets`,
-  `getDataset`, `createDataset`, `deleteDataset`, `embedUrl`, `health`
+- `Atlas.Client` (`{ baseUrl, apiKey }`): `geocode`, `getStyles`, `getMapTypes`,
+  `listDatasets`, `getDataset`, `createDataset`, `deleteDataset`, `embedUrl`,
+  `health`, `me`
 - `Atlas.csvToGeoJSON(text)` — CSV → GeoJSON with lat/lng auto-detection
 - `Atlas.utils` — `toFeatureCollection`, `dataBounds`, `numericProperties`,
   `parseCSV`, `buildLegend`, `formatNumber`
@@ -164,13 +201,15 @@ Embed URL parameters (`/embed?…`): `dataset`, `maptype`, `value`, `style`,
 ## Architecture
 
 ```
-server/index.js     zero-dependency Node HTTP server: static hosting + REST API
+server/index.js     zero-dependency Node HTTP server: pages + REST API
 server/presets.js   basemap style + map type catalogs (extend here)
+server/db.js        SQLite (node:sqlite): users, sessions, activity & request logs
+server/auth.js      register / login / logout / me + request authentication
 server/seed/        built-in sample datasets, seeded into data/ on first run
-public/             Atlas Studio (built on the SDK — same code paths as embedders)
+public/             landing (/), studio (/studio), docs (/docs), data catalog (/data)
 sdk/atlas-sdk.js    the developer kit: API client + map renderer (MapLibre GL)
 examples/           browser + Node integration examples
-data/               dataset store (gitignored, created at runtime)
+data/               runtime state: dataset files + atlas.db (gitignored)
 ```
 
 Rendering is MapLibre GL JS (open-source, vector + raster). Geocoding is proxied

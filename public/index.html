@@ -3,99 +3,148 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Atlas Studio — GIS &amp; Map Making</title>
-  <link rel="stylesheet" href="/css/app.css">
+  <title>Atlas — Intuitive GIS &amp; Map Making, with an API and SDK</title>
+  <meta name="description" content="Atlas is an open GIS and map-making platform: search any geography, layer your data, pick a map type, and ship maps anywhere via embeds or the SDK.">
+  <style>
+    :root {
+      --bg: #0f172a; --bg-2: #1e293b; --line: #334155;
+      --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --accent-2: #e63946;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+    .logo { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: .5px; }
+    .logo span { color: var(--accent); font-weight: 300; }
+    .nav-links { display: flex; gap: 22px; align-items: center; }
+    .nav-links a { color: var(--muted); font-size: 14.5px; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    .btn {
+      display: inline-block; padding: 11px 22px; border-radius: 8px; font-weight: 600; font-size: 15px;
+      background: var(--accent); color: #06283d; border: 1px solid var(--accent);
+    }
+    .btn:hover { filter: brightness(1.1); text-decoration: none; }
+    .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+    .btn.ghost:hover { border-color: var(--accent); }
+
+    .hero { padding: 64px 0 36px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+    .hero h1 { font-size: 40px; line-height: 1.15; margin: 0 0 18px; }
+    .hero h1 em { color: var(--accent); font-style: normal; }
+    .hero p { color: var(--muted); font-size: 17.5px; margin: 0 0 26px; }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .hero-map { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg-2); }
+    .hero-map iframe { display: block; width: 100%; height: 360px; border: 0; }
+    .hero-map figcaption { padding: 9px 14px; font-size: 12.5px; color: var(--muted); }
+
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; padding: 36px 0; }
+    .feature { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+    .feature h3 { margin: 0 0 8px; font-size: 16.5px; }
+    .feature h3::before { content: "◆ "; color: var(--accent); font-size: 12px; vertical-align: 2px; }
+    .feature p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+    .code-section { display: grid; grid-template-columns: 1fr 1.1fr; gap: 36px; align-items: center; padding: 40px 0; border-top: 1px solid var(--line); }
+    .code-section h2 { font-size: 28px; margin: 0 0 12px; }
+    .code-section p { color: var(--muted); }
+    pre { margin: 0; background: #0a0f1e; border: 1px solid var(--line); border-radius: 12px; padding: 20px; overflow-x: auto; font-size: 13px; line-height: 1.6; color: #93c5fd; }
+    pre .c { color: #64748b; }
+
+    footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    @media (max-width: 860px) { .hero, .code-section { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-  <aside id="sidebar">
-    <header class="brand">
-      <h1>Atlas <span>Studio</span></h1>
-      <p>Search any place. Style your map. Layer your data.</p>
-    </header>
-
-    <section class="panel">
-      <label class="panel-title" for="search-input">Find a place</label>
-      <div class="search-row">
-        <input id="search-input" type="text" placeholder="Country, city, address, landmark…" autocomplete="off">
-        <button id="search-btn" title="Search">Go</button>
+  <div class="wrap">
+    <nav>
+      <div class="logo">Atlas <span>GIS</span></div>
+      <div class="nav-links">
+        <a href="/docs">Docs</a>
+        <a href="/data">Open Data</a>
+        <a href="/examples/embed-example.html">Examples</a>
+        <a href="/api/health">API</a>
+        <a class="btn ghost" href="/studio">Open the Studio</a>
       </div>
-      <ul id="search-results" class="search-results hidden"></ul>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <h1>Make beautiful maps of <em>anywhere</em>, with <em>your</em> data on top.</h1>
+        <p>
+          Atlas is an intuitive, open GIS platform. Search any geography in the world,
+          switch basemap styles at any scale, layer your datasets with preloaded map
+          types — clusters, heatmaps, bubbles, choropleths — then export PNGs with
+          legends or share fully interactive maps anywhere via embeds and the SDK.
+        </p>
+        <div class="hero-actions">
+          <a class="btn" href="/studio">Start mapping — it's free</a>
+          <a class="btn ghost" href="/docs">Read the docs</a>
+        </div>
+      </div>
+      <figure class="hero-map">
+        <iframe src="/embed?dataset=acme-locations&maptype=clusters&style=dark&center=-96,38&zoom=3&title=Acme+Corp+%E2%80%94+US+Footprint" loading="lazy" title="Live Atlas map demo"></iframe>
+        <figcaption>Live map, embedded with one URL — a company's locations clustered across the USA.</figcaption>
+      </figure>
     </section>
 
-    <section class="panel">
-      <h2 class="panel-title">Basemap style</h2>
-      <div id="basemap-picker" class="chip-grid"></div>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title">Data</h2>
-      <div class="button-row">
-        <label class="btn file-btn">
-          Import CSV / GeoJSON
-          <input id="file-input" type="file" accept=".csv,.json,.geojson,application/json,text/csv" hidden>
-        </label>
-        <button id="refresh-datasets" class="btn ghost" title="Refresh server datasets">↻</button>
+    <section class="features">
+      <div class="feature">
+        <h3>Any geography on Earth</h3>
+        <p>Built-in worldwide geocoding flies you to any country, city, address, or landmark. Seven basemap styles — streets, satellite, terrain, dark, and more — at every scale.</p>
       </div>
-      <div id="dataset-list" class="dataset-list"></div>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title">Layers on map</h2>
-      <div id="layer-list" class="layer-list">
-        <p class="empty-hint">No data layers yet. Load a dataset above or import your own file — e.g. a CSV of all your company's locations with <code>lat</code>/<code>lng</code> columns.</p>
+      <div class="feature">
+        <h3>Your data, instantly mapped</h3>
+        <p>Drop in a CSV or GeoJSON — like every one of your company's locations — and render it with preloaded map types: pins, clusters, heatmap, bubble, choropleth, route.</p>
       </div>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title">Map output</h2>
-      <div class="control-stack">
-        <input id="map-title" type="text" placeholder="Map title (shown on map &amp; PNG exports)">
-        <label class="check-row"><input id="legend-toggle" type="checkbox" checked> Show legend (always included in PNG exports)</label>
+      <div class="feature">
+        <h3>Legends &amp; polished output</h3>
+        <p>Every map type generates its legend automatically, with real values from your data. PNG exports always include the legend, your title, and attribution.</p>
       </div>
-      <div class="button-row">
-        <button id="fit-data" class="btn">Fit to data</button>
-        <button id="export-png" class="btn">Export PNG</button>
-        <button id="share-embed" class="btn primary">Share &amp; embed…</button>
+      <div class="feature">
+        <h3>Share interactive maps</h3>
+        <p>One dialog gives you a shareable link, an iframe snippet, and an SDK snippet that reproduce your exact map — live and interactive for anyone you send it to.</p>
+      </div>
+      <div class="feature">
+        <h3>Open data by design</h3>
+        <p>Published datasets are licensed (CC BY 4.0 by default), publicly cataloged, downloadable as raw GeoJSON, and every event is recorded in a public activity log.</p>
+      </div>
+      <div class="feature">
+        <h3>Developer kit included</h3>
+        <p>A REST API and a single-file JavaScript SDK ship out of the box. Sign in for an API key and put Atlas maps inside any outside application.</p>
       </div>
     </section>
 
-    <footer class="panel footnote">
-      <a href="/data.html" target="_blank">Open data catalog</a> ·
-      <a href="/examples/embed-example.html" target="_blank">SDK examples</a> ·
-      <a href="/api/health" target="_blank">API</a> ·
-      <span id="status-zoom"></span>
+    <section class="code-section">
+      <div>
+        <h2>Maps in your app, four lines.</h2>
+        <p>
+          The Atlas SDK loads the rendering engine, fetches your published dataset,
+          applies the map type, and draws the legend. Authentication is one header
+          with your API key. <a href="/docs">Full documentation →</a>
+        </p>
+      </div>
+      <pre>&lt;div id="map" style="height:400px"&gt;&lt;/div&gt;
+&lt;script src="https://your-atlas-host/sdk/atlas-sdk.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+Atlas.createMap('#map', {
+  style: 'dark',                  <span class="c">// 7 basemap presets</span>
+  mapType: 'bubble',              <span class="c">// 6 preloaded map types</span>
+  dataset: 'acme-locations',      <span class="c">// any published open dataset</span>
+  valueProperty: 'revenue_musd',  <span class="c">// drives size &amp; legend</span>
+  title: 'Revenue by location'
+});
+&lt;/script&gt;</pre>
+    </section>
+
+    <footer>
+      <div>Atlas — open GIS &amp; map making. MIT licensed.</div>
+      <div>
+        <a href="/studio">Studio</a> · <a href="/docs">Docs</a> ·
+        <a href="/data">Open data</a> · <a href="/examples/embed-example.html">Examples</a>
+      </div>
     </footer>
-  </aside>
-
-  <main id="map"></main>
-  <div id="toast" class="toast hidden"></div>
-
-  <div id="share-dialog" class="dialog-backdrop hidden">
-    <div class="dialog">
-      <div class="dialog-head">
-        <h2>Share &amp; embed this map</h2>
-        <button id="share-close" class="remove-layer" title="Close">✕</button>
-      </div>
-      <p id="share-note" class="empty-hint"></p>
-      <label class="dialog-label">Shareable link (interactive map)</label>
-      <div class="copy-row">
-        <input id="share-url" type="text" readonly>
-        <button class="btn copy-btn" data-copy="share-url">Copy</button>
-      </div>
-      <label class="dialog-label">Embed in any website or app (iframe)</label>
-      <div class="copy-row">
-        <textarea id="share-iframe" rows="4" readonly></textarea>
-        <button class="btn copy-btn" data-copy="share-iframe">Copy</button>
-      </div>
-      <label class="dialog-label">Render with the Atlas SDK</label>
-      <div class="copy-row">
-        <textarea id="share-sdk" rows="7" readonly></textarea>
-        <button class="btn copy-btn" data-copy="share-sdk">Copy</button>
-      </div>
-    </div>
   </div>
-
-  <script src="/sdk/atlas-sdk.js"></script>
-  <script src="/js/app.js"></script>
 </body>
 </html>

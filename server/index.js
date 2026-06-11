@@ -8,6 +8,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { BASEMAP_STYLES, MAP_TYPES, getStyle, getMapType } from './presets.js';
+import { initDB, logActivity, readActivity, logRequest, requestStats } from './db.js';
+import { handleAuthRoutes, getAuthUser } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -64,34 +66,9 @@ async function ensureDataDir() {
         geojson
       };
       await fs.writeFile(target, JSON.stringify(record));
-      await appendLog({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, via: 'seed' });
+      logActivity({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, via: 'seed' });
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Open-data activity log: every dataset event is appended to a public,
-// append-only JSONL log served at /api/log.
-// ---------------------------------------------------------------------------
-
-const LOG_FILE = () => path.join(DATA_DIR, 'activity.jsonl');
-
-async function appendLog(event) {
-  const line = JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n';
-  await fs.appendFile(LOG_FILE(), line).catch((err) => console.error('log write failed:', err.message));
-}
-
-async function readLog(limit = 100) {
-  let raw = '';
-  try {
-    raw = await fs.readFile(LOG_FILE(), 'utf8');
-  } catch {
-    return [];
-  }
-  const lines = raw.trim().split('\n').filter(Boolean);
-  return lines.slice(-limit).reverse().map((line) => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
 }
 
 function datasetPath(id) {
@@ -160,11 +137,12 @@ async function geocode(query, limit = 5) {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-function sendJSON(res, status, body) {
+function sendJSON(res, status, body, extraHeaders = {}) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*'
+    'Access-Control-Allow-Origin': '*',
+    ...extraHeaders
   });
   res.end(payload);
 }
@@ -262,14 +240,30 @@ async function handleAPI(req, res, url) {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
     });
     res.end();
     return;
   }
 
+  if (route.startsWith('/api/auth/')) {
+    let body = null;
+    if (req.method === 'POST') {
+      try {
+        const raw = await readBody(req);
+        body = raw ? JSON.parse(raw) : {};
+      } catch (err) {
+        sendJSON(res, err.status || 400, { error: err.status ? err.message : 'Invalid JSON body' });
+        return;
+      }
+    }
+    if (await handleAuthRoutes(req, res, url, body, sendJSON)) return;
+    sendJSON(res, 404, { error: `Unknown auth route: ${route}` });
+    return;
+  }
+
   if (route === '/api/health') {
-    sendJSON(res, 200, { ok: true, service: 'atlas', version: '0.2.0' });
+    sendJSON(res, 200, { ok: true, service: 'atlas', version: '0.3.0' });
     return;
   }
 
@@ -304,6 +298,11 @@ async function handleAPI(req, res, url) {
   }
 
   if (route === '/api/datasets' && req.method === 'POST') {
+    const user = getAuthUser(req);
+    if (!user) {
+      sendJSON(res, 401, { error: 'Sign in (or pass an API key) to publish datasets' });
+      return;
+    }
     let body;
     try {
       body = JSON.parse(await readBody(req));
@@ -325,21 +324,33 @@ async function handleAPI(req, res, url) {
       // All published datasets are open data: default license is CC BY 4.0.
       license: body.license || 'CC BY 4.0',
       source: body.source || '',
+      owner: user.email,
       created: new Date().toISOString(),
       featureCount: geojson.type === 'FeatureCollection' ? geojson.features.length : 1,
       geojson
     };
     await fs.writeFile(datasetPath(id), JSON.stringify(record));
-    await appendLog({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, via: 'api' });
+    logActivity({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, user: user.email, via: 'api' });
     const { geojson: _g, ...meta } = record;
     sendJSON(res, 201, { dataset: meta });
     return;
   }
 
-  // Public activity log: every dataset event, newest first.
+  // Public activity log: every dataset and account event, newest first.
   if (route === '/api/log') {
     const limit = Math.min(Number(url.searchParams.get('limit') || 100), 1000);
-    sendJSON(res, 200, { events: await readLog(limit) });
+    sendJSON(res, 200, { events: readActivity(limit) });
+    return;
+  }
+
+  // Server stats from the request log (signed-in users only).
+  if (route === '/api/stats') {
+    const user = getAuthUser(req);
+    if (!user) {
+      sendJSON(res, 401, { error: 'Sign in to view server stats' });
+      return;
+    }
+    sendJSON(res, 200, { stats: requestStats() });
     return;
   }
 
@@ -373,13 +384,25 @@ async function handleAPI(req, res, url) {
       return;
     }
     if (req.method === 'DELETE') {
-      try {
-        await fs.unlink(datasetPath(id));
-        await appendLog({ event: 'dataset.deleted', dataset: id, via: 'api' });
-        sendJSON(res, 200, { deleted: id });
-      } catch {
-        sendJSON(res, 404, { error: `Dataset not found: ${id}` });
+      const user = getAuthUser(req);
+      if (!user) {
+        sendJSON(res, 401, { error: 'Sign in to delete datasets' });
+        return;
       }
+      const record = await readDataset(id);
+      if (!record) {
+        sendJSON(res, 404, { error: `Dataset not found: ${id}` });
+        return;
+      }
+      // Owners can delete their datasets; ownerless (seed/legacy) datasets
+      // can be removed by any signed-in user.
+      if (record.owner && record.owner !== user.email) {
+        sendJSON(res, 403, { error: 'Only the dataset owner can delete it' });
+        return;
+      }
+      await fs.unlink(datasetPath(id));
+      logActivity({ event: 'dataset.deleted', dataset: id, name: record.name, user: user.email, via: 'api' });
+      sendJSON(res, 200, { deleted: id });
       return;
     }
   }
@@ -418,8 +441,36 @@ async function handleAPI(req, res, url) {
   sendJSON(res, 404, { error: `Unknown API route: ${route}` });
 }
 
+// Pretty routes for the site's pages.
+const PAGE_ROUTES = {
+  '/': 'index.html',
+  '/studio': 'studio.html',
+  '/docs': 'docs.html',
+  '/data': 'data.html'
+};
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const startedAt = performance.now();
+
+  // Every API and embed request is logged to the database.
+  if (url.pathname.startsWith('/api/') || url.pathname === '/embed') {
+    res.on('finish', () => {
+      try {
+        const user = getAuthUser(req);
+        logRequest({
+          method: req.method,
+          path: url.pathname,
+          status: res.statusCode,
+          durationMs: performance.now() - startedAt,
+          user: user ? user.email : null
+        });
+      } catch (err) {
+        console.error('request log failed:', err.message);
+      }
+    });
+  }
+
   try {
     if (url.pathname.startsWith('/api/')) {
       await handleAPI(req, res, url);
@@ -438,7 +489,7 @@ const server = http.createServer(async (req, res) => {
       await serveStatic(res, EXAMPLES_DIR, url.pathname.slice('/examples/'.length));
       return;
     }
-    const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
+    const rel = PAGE_ROUTES[url.pathname] || url.pathname.slice(1);
     await serveStatic(res, PUBLIC_DIR, rel);
   } catch (err) {
     console.error(err);
@@ -446,10 +497,14 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+initDB(DATA_DIR);
 await ensureDataDir();
 server.listen(PORT, () => {
   console.log(`Atlas is running:
-  Studio app : http://localhost:${PORT}/
+  Landing    : http://localhost:${PORT}/
+  Studio app : http://localhost:${PORT}/studio
+  Docs       : http://localhost:${PORT}/docs
+  Open data  : http://localhost:${PORT}/data
   REST API   : http://localhost:${PORT}/api/health
   SDK        : http://localhost:${PORT}/sdk/atlas-sdk.js
   Embed demo : http://localhost:${PORT}/embed?dataset=acme-locations&maptype=clusters&style=light&center=-96,38&zoom=4`);

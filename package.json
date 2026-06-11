@@ -1,6 +1,6 @@
 {
   "name": "atlas-gis",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Atlas — an intuitive GIS and map-making studio with a REST API and embeddable JavaScript SDK",
   "type": "module",
   "main": "server/index.js",
@@ -10,7 +10,7 @@
     "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.5"
   },
   "license": "MIT"
 }

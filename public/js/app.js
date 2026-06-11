@@ -11,6 +11,82 @@
   var layerDatasetIds = {}; // layerset id -> server dataset id (when loaded from server)
 
   var $ = function (sel) { return document.querySelector(sel); };
+  var currentUser = null;
+
+  // --------------------------------------------------------------------
+  // Account & auth
+  // --------------------------------------------------------------------
+
+  function api(path, options) {
+    options = options || {};
+    if (options.body) {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify(options.body);
+    }
+    return fetch(path, options).then(function (res) {
+      return res.json().then(function (body) {
+        if (!res.ok) throw new Error(body.error || ('Request failed: ' + res.status));
+        return body;
+      });
+    });
+  }
+
+  function renderAccount() {
+    $('#account-signed-out').classList.toggle('hidden', !!currentUser);
+    $('#account-signed-in').classList.toggle('hidden', !currentUser);
+    if (currentUser) {
+      $('#account-name').textContent = currentUser.name;
+      $('#account-email').textContent = currentUser.email;
+    }
+  }
+
+  function refreshAccount() {
+    return api('/api/auth/me').then(function (body) {
+      currentUser = body.user;
+    }).catch(function () {
+      currentUser = null;
+    }).then(renderAccount);
+  }
+
+  var authMode = 'login';
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    var registering = mode === 'register';
+    $('#auth-title').textContent = registering ? 'Create your Atlas account' : 'Sign in to Atlas';
+    $('#auth-name-row').classList.toggle('hidden', !registering);
+    $('#auth-pw-hint').classList.toggle('hidden', !registering);
+    $('#auth-submit').textContent = registering ? 'Create account' : 'Sign in';
+    $('#auth-switch').textContent = registering ? 'Have an account? Sign in' : 'Need an account? Register';
+    $('#auth-password').autocomplete = registering ? 'new-password' : 'current-password';
+    $('#auth-error').classList.add('hidden');
+  }
+
+  function openAuthDialog(mode) {
+    setAuthMode(mode || 'login');
+    $('#auth-dialog').classList.remove('hidden');
+    $('#auth-email').focus();
+  }
+
+  function submitAuth(e) {
+    e.preventDefault();
+    var payload = {
+      email: $('#auth-email').value.trim(),
+      password: $('#auth-password').value
+    };
+    if (authMode === 'register') payload.name = $('#auth-name').value.trim();
+    api('/api/auth/' + authMode, { method: 'POST', body: payload }).then(function (body) {
+      currentUser = body.user;
+      renderAccount();
+      $('#auth-dialog').classList.add('hidden');
+      $('#auth-form').reset();
+      toast(authMode === 'register' ? 'Welcome to Atlas, ' + currentUser.name + '!' : 'Signed in as ' + currentUser.email);
+    }).catch(function (err) {
+      var el = $('#auth-error');
+      el.textContent = err.message;
+      el.classList.remove('hidden');
+    });
+  }
 
   function toast(message, isError) {
     var el = $('#toast');
@@ -164,10 +240,16 @@
   }
 
   function offerSaveToServer(src, fc) {
+    if (!currentUser) {
+      toast('Sign in to publish datasets — your import stays on the map meanwhile.');
+      openAuthDialog('login');
+      return;
+    }
     var ok = window.confirm(
       'Publish this dataset to the Atlas server?\n\n' +
       'Published datasets are OPEN DATA: licensed CC BY 4.0, listed in the public data ' +
-      'catalog, downloadable by anyone, and recorded in the public activity log. ' +
+      'catalog, downloadable by anyone, and recorded in the public activity log ' +
+      'under your account (' + currentUser.email + '). ' +
       'Publishing also lets you share and embed interactive maps of this data.'
     );
     if (!ok) return;
@@ -351,6 +433,33 @@
   }).then(function (instance) {
     atlasMap = instance;
     refreshDatasets();
+    refreshAccount();
+
+    $('#open-auth').addEventListener('click', function () { openAuthDialog('login'); });
+    $('#auth-form').addEventListener('submit', submitAuth);
+    $('#auth-switch').addEventListener('click', function () {
+      setAuthMode(authMode === 'login' ? 'register' : 'login');
+    });
+    $('#auth-close').addEventListener('click', function () {
+      $('#auth-dialog').classList.add('hidden');
+    });
+    $('#auth-dialog').addEventListener('click', function (e) {
+      if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+    });
+    $('#logout-btn').addEventListener('click', function () {
+      api('/api/auth/logout', { method: 'POST' }).then(function () {
+        currentUser = null;
+        renderAccount();
+        toast('Signed out');
+      });
+    });
+    $('#show-apikey').addEventListener('click', function () {
+      if (!currentUser) return;
+      window.prompt(
+        'Your Atlas API key — use it as "Authorization: Bearer <key>" with the API and SDK:',
+        currentUser.apiKey
+      );
+    });
 
     // Deep link from the data catalog: /?dataset=<id> auto-loads it.
     var requested = new URLSearchParams(location.search).get('dataset');

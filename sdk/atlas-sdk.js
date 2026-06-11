@@ -1,5 +1,5 @@
 /*!
- * Atlas SDK v0.2.0
+ * Atlas SDK v0.3.0
  * Embeddable maps + API client for the Atlas GIS platform.
  *
  * Browser usage:
@@ -41,16 +41,28 @@
   function Client(options) {
     options = options || {};
     this.baseUrl = (options.baseUrl || '').replace(/\/$/, '');
+    // API key for authenticated calls (publishing datasets, /api/stats, ...).
+    // Browsers signed in to the studio can omit it: the session cookie is used.
+    this.apiKey = options.apiKey || null;
   }
 
   Client.prototype._fetch = function (path, init) {
     var url = this.baseUrl + path;
+    init = init || {};
+    if (this.apiKey) {
+      init.headers = Object.assign({}, init.headers, { Authorization: 'Bearer ' + this.apiKey });
+    }
     return fetch(url, init).then(function (res) {
       return res.json().then(function (body) {
         if (!res.ok) throw new Error(body.error || ('Atlas API error ' + res.status));
         return body;
       });
     });
+  };
+
+  /** Current authenticated user (requires apiKey or a studio session cookie). */
+  Client.prototype.me = function () {
+    return this._fetch('/api/auth/me').then(function (body) { return body.user; });
   };
 
   Client.prototype.health = function () {
@@ -86,7 +98,10 @@
     return this._fetch('/api/datasets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: meta.id, name: meta.name, description: meta.description, geojson: geojson })
+      body: JSON.stringify({
+        id: meta.id, name: meta.name, description: meta.description,
+        license: meta.license, source: meta.source, geojson: geojson
+      })
     }).then(function (body) { return body.dataset; });
   };
 
@@ -1108,7 +1123,7 @@
   // -------------------------------------------------------------------------
 
   var Atlas = {
-    version: '0.2.0',
+    version: '0.3.0',
     Client: Client,
     createMap: createMap,
     csvToGeoJSON: csvToGeoJSON,

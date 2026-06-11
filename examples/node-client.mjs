@@ -1,10 +1,30 @@
-// Using the Atlas SDK from Node (server-to-server): geocode places and
-// publish a dataset, then print an embed URL you can drop into any app.
+// Using the Atlas SDK from Node (server-to-server): register an account,
+// geocode places, publish a dataset with an API key, and print an embed URL
+// you can drop into any app.
 //
 // Run the server first (`npm start`), then: node examples/node-client.mjs
 
 await import('../sdk/atlas-sdk.js'); // registers globalThis.Atlas
-const atlas = new globalThis.Atlas.Client({ baseUrl: 'http://localhost:8787' });
+const BASE = 'http://localhost:8787';
+
+// 0. Get an API key: register an account (or sign in if it already exists).
+const account = { email: 'sdk-demo@example.com', password: 'sdk-demo-password', name: 'SDK Demo' };
+let res = await fetch(`${BASE}/api/auth/register`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(account)
+});
+if (res.status === 409) {
+  res = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(account)
+  });
+}
+const { user } = await res.json();
+console.log('Authenticated as:', user.email);
+
+const atlas = new globalThis.Atlas.Client({ baseUrl: BASE, apiKey: user.apiKey });
 
 // 1. Geocode anywhere in the world.
 const [paris] = await atlas.geocode('Paris, France', 1);
