@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atlas SDK — embedding maps in your own application</title>
+  <style>
+    body { font: 15px/1.6 system-ui, sans-serif; margin: 0; padding: 32px; background: #f6f8fa; color: #1f2937; }
+    h1 { margin-top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 24px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .card h2 { font-size: 16px; margin: 0; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; }
+    .card .map { height: 320px; }
+    .card pre { margin: 0; padding: 12px 16px; background: #0f172a; color: #93c5fd; font-size: 12px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Atlas SDK examples</h1>
+  <p>Each map below is created with a few lines of JavaScript against the Atlas SDK — this is how you embed Atlas maps in any outside application. An iframe embed needs zero JavaScript: just point it at <code>/embed?…</code>.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Cluster map of company locations</h2>
+      <div id="map-clusters" class="map"></div>
+      <pre>Atlas.createMap('#map-clusters', {
+  style: 'light',
+  mapType: 'clusters',
+  dataset: 'acme-locations'
+});</pre>
+    </div>
+
+    <div class="card">
+      <h2>2. Bubble map sized by revenue</h2>
+      <div id="map-bubble" class="map"></div>
+      <pre>Atlas.createMap('#map-bubble', {
+  style: 'dark',
+  mapType: 'bubble',
+  dataset: 'acme-locations',
+  valueProperty: 'revenue_musd'
+});</pre>
+    </div>
+
+    <div class="card">
+      <h2>3. Heatmap of location density</h2>
+      <div id="map-heat" class="map"></div>
+      <pre>Atlas.createMap('#map-heat', {
+  style: 'dark',
+  mapType: 'heatmap',
+  dataset: 'acme-locations'
+});</pre>
+    </div>
+
+    <div class="card">
+      <h2>4. Inline GeoJSON, satellite basemap, geocoded fly-to</h2>
+      <div id="map-inline" class="map"></div>
+      <pre>const m = await Atlas.createMap('#map-inline', { style: 'satellite' });
+await m.flyToPlace('Grand Canyon');</pre>
+    </div>
+
+    <div class="card">
+      <h2>5. Zero-JS iframe embed</h2>
+      <iframe class="map" style="width:100%;border:0"
+        src="/embed?dataset=acme-locations&maptype=pins&style=streets&center=-96,38&zoom=3"></iframe>
+      <pre>&lt;iframe src="https://your-atlas-host/embed?dataset=acme-locations
+  &amp;maptype=pins&amp;style=streets&amp;center=-96,38&amp;zoom=3"&gt;&lt;/iframe&gt;</pre>
+    </div>
+  </div>
+
+  <script src="/sdk/atlas-sdk.js"></script>
+  <script>
+    Atlas.createMap('#map-clusters', { style: 'light', mapType: 'clusters', dataset: 'acme-locations' });
+    Atlas.createMap('#map-bubble', { style: 'dark', mapType: 'bubble', dataset: 'acme-locations', valueProperty: 'revenue_musd' });
+    Atlas.createMap('#map-heat', { style: 'dark', mapType: 'heatmap', dataset: 'acme-locations' });
+    Atlas.createMap('#map-inline', { style: 'satellite', zoom: 3, center: [-112, 36] })
+      .then(function (m) { return m.flyToPlace('Grand Canyon'); })
+      .catch(console.error);
+  </script>
+</body>
+</html>
