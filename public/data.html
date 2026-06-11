@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atlas — Open Data Catalog</title>
+  <style>
+    body { font: 15px/1.6 system-ui, sans-serif; margin: 0; padding: 32px; background: #f6f8fa; color: #1f2937; }
+    h1 { margin-top: 0; }
+    h1 span { color: #0284c7; font-weight: 300; }
+    a { color: #0284c7; }
+    .lead { max-width: 720px; color: #4b5563; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; font-size: 14px; vertical-align: top; }
+    th { background: #f9fafb; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+    tr:last-child td { border-bottom: none; }
+    .license { display: inline-block; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 10px; padding: 1px 8px; font-size: 12px; }
+    .actions a { margin-right: 10px; white-space: nowrap; }
+    .muted { color: #6b7280; font-size: 13px; }
+    .log { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 6px 14px; margin-top: 12px; }
+    .log-entry { padding: 7px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; display: flex; gap: 12px; }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry time { color: #6b7280; white-space: nowrap; }
+    code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <h1>Atlas <span>Open Data Catalog</span></h1>
+  <p class="lead">
+    Every dataset published to this Atlas server is <strong>open data</strong> — licensed for reuse
+    (CC BY 4.0 unless stated otherwise), downloadable as raw GeoJSON, embeddable as an interactive
+    map, and recorded in the public activity log below.
+    <a href="/">← Back to the studio</a>
+  </p>
+
+  <h2>Datasets</h2>
+  <table>
+    <thead>
+      <tr><th>Dataset</th><th>Features</th><th>License</th><th>Published</th><th>Use it</th></tr>
+    </thead>
+    <tbody id="dataset-rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+  </table>
+
+  <h2>Activity log</h2>
+  <p class="muted">Append-only record of every dataset event on this server. Also available as JSON at <code>/api/log</code>.</p>
+  <div class="log" id="log-entries">Loading…</div>
+
+  <script>
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }
+
+    fetch('/api/datasets').then(function (r) { return r.json(); }).then(function (body) {
+      var rows = body.datasets.map(function (ds) {
+        var embed = '/embed?' + new URLSearchParams({ dataset: ds.id, maptype: 'clusters', style: 'light' });
+        return '<tr>' +
+          '<td><strong>' + esc(ds.name) + '</strong><br><span class="muted">id: <code>' + esc(ds.id) + '</code>' +
+          (ds.description ? ' — ' + esc(ds.description) : '') + '</span></td>' +
+          '<td>' + esc(ds.featureCount) + '</td>' +
+          '<td><span class="license">' + esc(ds.license || 'CC BY 4.0') + '</span></td>' +
+          '<td class="muted">' + esc((ds.created || '').slice(0, 10)) + '</td>' +
+          '<td class="actions">' +
+            '<a href="/api/datasets/' + encodeURIComponent(ds.id) + '/download">Download GeoJSON</a>' +
+            '<a href="' + embed + '" target="_blank">Interactive map</a>' +
+            '<a href="/?dataset=' + encodeURIComponent(ds.id) + '">Open in studio</a>' +
+          '</td></tr>';
+      });
+      document.getElementById('dataset-rows').innerHTML =
+        rows.join('') || '<tr><td colspan="5" class="muted">No datasets published yet.</td></tr>';
+    });
+
+    fetch('/api/log?limit=200').then(function (r) { return r.json(); }).then(function (body) {
+      var entries = body.events.map(function (e) {
+        return '<div class="log-entry"><time>' + esc(e.at.replace('T', ' ').slice(0, 19)) + '</time>' +
+          '<span><code>' + esc(e.event) + '</code> ' + esc(e.name || e.dataset || '') +
+          (e.featureCount ? ' (' + esc(e.featureCount) + ' features, ' + esc(e.license || '') + ')' : '') +
+          '</span></div>';
+      });
+      document.getElementById('log-entries').innerHTML =
+        entries.join('') || '<div class="log-entry">No activity yet.</div>';
+    });
+  </script>
+</body>
+</html>

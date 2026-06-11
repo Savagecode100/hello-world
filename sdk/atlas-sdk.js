@@ -1,5 +1,5 @@
 /*!
- * Atlas SDK v0.1.0
+ * Atlas SDK v0.2.0
  * Embeddable maps + API client for the Atlas GIS platform.
  *
  * Browser usage:
@@ -188,6 +188,237 @@
     return s.replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  function formatNumber(v) {
+    if (!isFinite(v)) return String(v);
+    if (Math.abs(v) >= 1000) return Math.round(v).toLocaleString('en-US');
+    return String(Math.round(v * 100) / 100);
+  }
+
+  // -------------------------------------------------------------------------
+  // Legends. buildLegend() turns a layerset into a renderer-agnostic model;
+  // renderLegendDOM() shows it on the map, drawLegendOnCanvas() bakes it
+  // into PNG exports.
+  // -------------------------------------------------------------------------
+
+  var HEATMAP_RAMP = ['#4393c3', '#92c5de', '#fddbc7', '#ef8a62', '#b2182b'];
+
+  function buildLegend(entry) {
+    var fc = toFeatureCollection(entry.geojson);
+    var n = fc.features.length;
+    var prop = entry.valueProperty;
+    var stats = prop ? valueStats(fc, prop) : null;
+    var legend = { title: entry.name || 'Data layer', subtitle: null, items: [] };
+    switch (entry.mapType) {
+      case 'clusters':
+        legend.subtitle = n + ' locations';
+        legend.items = [
+          { kind: 'dot', color: COLORS.pin, size: 5, label: 'Single location' },
+          { kind: 'dot', color: COLORS.cluster[0], size: 7, label: '2–9 grouped' },
+          { kind: 'dot', color: COLORS.cluster[1], size: 9, label: '10–49 grouped' },
+          { kind: 'dot', color: COLORS.cluster[2], size: 11, label: '50+ grouped' }
+        ];
+        break;
+      case 'heatmap':
+        legend.subtitle = prop ? 'Density, weighted by ' + prop : 'Density of ' + n + ' locations';
+        legend.items = [{ kind: 'gradient', colors: HEATMAP_RAMP, from: 'Low', to: 'High' }];
+        break;
+      case 'bubble':
+        legend.subtitle = prop ? 'Sized by ' + prop : 'No value property selected';
+        legend.items = [{
+          kind: 'circles',
+          color: COLORS.rampHigh,
+          minR: 5,
+          maxR: 16,
+          from: stats ? formatNumber(stats.min) : 'Low',
+          to: stats ? formatNumber(stats.max) : 'High'
+        }];
+        break;
+      case 'choropleth':
+        legend.subtitle = prop ? 'Shaded by ' + prop : 'No value property selected';
+        legend.items = [{
+          kind: 'gradient',
+          colors: [COLORS.rampLow, COLORS.rampHigh],
+          from: stats ? formatNumber(stats.min) : 'Low',
+          to: stats ? formatNumber(stats.max) : 'High'
+        }];
+        break;
+      case 'route':
+        legend.items = [
+          { kind: 'line', color: COLORS.line, label: 'Route' },
+          { kind: 'dot', color: COLORS.pin, size: 5, label: 'Stop' }
+        ];
+        break;
+      default: // pins
+        legend.items = [{ kind: 'dot', color: COLORS.pin, size: 6, label: n + ' location' + (n === 1 ? '' : 's') }];
+    }
+    return legend;
+  }
+
+  function legendItemHTML(item) {
+    if (item.kind === 'dot') {
+      return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">' +
+        '<span style="width:' + item.size * 2 + 'px;height:' + item.size * 2 + 'px;border-radius:50%;background:' +
+        item.color + ';border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.15);flex:none"></span>' +
+        '<span>' + escapeHTML(item.label) + '</span></div>';
+    }
+    if (item.kind === 'line') {
+      return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">' +
+        '<span style="width:22px;height:4px;border-radius:2px;background:' + item.color + ';flex:none"></span>' +
+        '<span>' + escapeHTML(item.label) + '</span></div>';
+    }
+    if (item.kind === 'gradient') {
+      return '<div style="margin:4px 0 2px">' +
+        '<div style="height:9px;border-radius:4px;background:linear-gradient(to right,' + item.colors.join(',') + ')"></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:10px;color:#555;margin-top:2px">' +
+        '<span>' + escapeHTML(item.from) + '</span><span>' + escapeHTML(item.to) + '</span></div></div>';
+    }
+    if (item.kind === 'circles') {
+      return '<div style="display:flex;align-items:flex-end;gap:10px;margin:4px 0 2px">' +
+        '<span style="text-align:center"><span style="display:block;margin:0 auto;width:' + item.minR * 2 + 'px;height:' + item.minR * 2 +
+        'px;border-radius:50%;background:' + item.color + ';opacity:.78"></span>' +
+        '<span style="font-size:10px;color:#555">' + escapeHTML(item.from) + '</span></span>' +
+        '<span style="text-align:center"><span style="display:block;margin:0 auto;width:' + item.maxR * 2 + 'px;height:' + item.maxR * 2 +
+        'px;border-radius:50%;background:' + item.color + ';opacity:.78"></span>' +
+        '<span style="font-size:10px;color:#555">' + escapeHTML(item.to) + '</span></span></div>';
+    }
+    return '';
+  }
+
+  function legendHTML(models) {
+    return models.map(function (m) {
+      return '<div style="margin-bottom:8px">' +
+        '<div style="font-weight:600;font-size:12px">' + escapeHTML(m.title) + '</div>' +
+        (m.subtitle ? '<div style="font-size:10.5px;color:#555">' + escapeHTML(m.subtitle) + '</div>' : '') +
+        m.items.map(legendItemHTML).join('') +
+        '</div>';
+    }).join('');
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  var LEGEND_W = 195;
+
+  function legendModelHeight(m) {
+    var h = 18 + (m.subtitle ? 14 : 0);
+    m.items.forEach(function (item) {
+      if (item.kind === 'gradient') h += 28;
+      else if (item.kind === 'circles') h += item.maxR * 2 + 18;
+      else h += 19;
+    });
+    return h + 8;
+  }
+
+  function drawLegendOnCanvas(ctx, models, x, bottomY) {
+    if (!models.length) return;
+    var pad = 10;
+    var height = models.reduce(function (sum, m) { return sum + legendModelHeight(m); }, 0) + pad * 2 - 8;
+    var top = bottomY - height;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.93)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, top, LEGEND_W, height, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    var y = top + pad;
+    var left = x + pad;
+    var innerW = LEGEND_W - pad * 2;
+
+    models.forEach(function (m) {
+      ctx.fillStyle = '#1f2937';
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText(m.title, left, y, innerW);
+      y += 18;
+      if (m.subtitle) {
+        ctx.fillStyle = '#555';
+        ctx.font = '10.5px system-ui, sans-serif';
+        ctx.fillText(m.subtitle, left, y - 3, innerW);
+        y += 14;
+      }
+      m.items.forEach(function (item) {
+        if (item.kind === 'dot') {
+          ctx.beginPath();
+          ctx.arc(left + 11, y + 9, item.size, 0, Math.PI * 2);
+          ctx.fillStyle = item.color;
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = '#1f2937';
+          ctx.font = '11px system-ui, sans-serif';
+          ctx.fillText(item.label, left + 28, y + 4, innerW - 28);
+          y += 19;
+        } else if (item.kind === 'line') {
+          ctx.fillStyle = item.color;
+          roundRect(ctx, left + 1, y + 7, 20, 4, 2);
+          ctx.fill();
+          ctx.fillStyle = '#1f2937';
+          ctx.font = '11px system-ui, sans-serif';
+          ctx.fillText(item.label, left + 28, y + 4, innerW - 28);
+          y += 19;
+        } else if (item.kind === 'gradient') {
+          var grad = ctx.createLinearGradient(left, 0, left + innerW, 0);
+          item.colors.forEach(function (color, i) {
+            grad.addColorStop(i / (item.colors.length - 1), color);
+          });
+          ctx.fillStyle = grad;
+          roundRect(ctx, left, y + 2, innerW, 9, 4);
+          ctx.fill();
+          ctx.fillStyle = '#555';
+          ctx.font = '10px system-ui, sans-serif';
+          ctx.fillText(item.from, left, y + 14);
+          var toW = ctx.measureText(item.to).width;
+          ctx.fillText(item.to, left + innerW - toW, y + 14);
+          y += 28;
+        } else if (item.kind === 'circles') {
+          var cy = y + item.maxR;
+          [{ r: item.minR, label: item.from, cx: left + item.minR + 4 },
+           { r: item.maxR, label: item.to, cx: left + item.minR * 2 + item.maxR + 24 }].forEach(function (c) {
+            ctx.beginPath();
+            ctx.arc(c.cx, cy + (item.maxR - c.r), c.r, 0, Math.PI * 2);
+            ctx.fillStyle = item.color;
+            ctx.globalAlpha = 0.78;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#555';
+            ctx.font = '10px system-ui, sans-serif';
+            var lw = ctx.measureText(c.label).width;
+            ctx.fillText(c.label, c.cx - lw / 2, y + item.maxR * 2 + 4);
+          });
+          y += item.maxR * 2 + 18;
+        }
+      });
+      y += 8;
+    });
+  }
+
+  function attributionText(map) {
+    try {
+      var style = map.getStyle();
+      var parts = [];
+      Object.keys(style.sources || {}).forEach(function (key) {
+        var attr = style.sources[key].attribution;
+        if (attr) parts.push(attr.replace(/<[^>]*>/g, ''));
+      });
+      var text = parts.join(' ')
+        .replace(/&copy;/g, '©').replace(/&mdash;/g, '—').replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ').trim();
+      return text || '© OpenStreetMap contributors';
+    } catch (err) {
+      return '© OpenStreetMap contributors';
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -397,8 +628,12 @@
     this.map = map;             // underlying MapLibre map (escape hatch)
     this.client = client;
     this._maplibregl = maplibregl;
-    this._layersets = {};       // sourceId -> { geojson, mapType, valueProperty, layerIds }
+    this._layersets = {};       // sourceId -> { geojson, name, mapType, valueProperty, layerIds }
     this._counter = 0;
+    this._legendVisible = true;
+    this._legendEl = null;
+    this._title = null;
+    this._titleEl = null;
 
     var self = this;
     // Re-add data layers whenever the basemap style is replaced.
@@ -437,6 +672,65 @@
       if (meta.clusterZoom) self._wireClusterZoom(layer.id, src);
       return layer.id;
     });
+    this._updateLegend();
+  };
+
+  AtlasMap.prototype._legendModels = function () {
+    var self = this;
+    return Object.keys(this._layersets).map(function (src) {
+      return buildLegend(self._layersets[src]);
+    });
+  };
+
+  AtlasMap.prototype._updateLegend = function () {
+    var container = this.map.getContainer();
+    if (!this._legendVisible) {
+      if (this._legendEl) { this._legendEl.remove(); this._legendEl = null; }
+      return;
+    }
+    var models = this._legendModels();
+    if (!models.length) {
+      if (this._legendEl) { this._legendEl.remove(); this._legendEl = null; }
+      return;
+    }
+    if (!this._legendEl) {
+      this._legendEl = document.createElement('div');
+      this._legendEl.className = 'atlas-legend';
+      this._legendEl.style.cssText =
+        'position:absolute;left:10px;bottom:34px;z-index:5;width:' + LEGEND_W + 'px;' +
+        'background:rgba(255,255,255,0.93);border:1px solid rgba(0,0,0,0.18);border-radius:8px;' +
+        'padding:10px 10px 4px;font:11px/1.4 system-ui,sans-serif;color:#1f2937;' +
+        'box-shadow:0 1px 4px rgba(0,0,0,0.12);max-height:55%;overflow-y:auto';
+      container.appendChild(this._legendEl);
+    }
+    this._legendEl.innerHTML = legendHTML(models);
+  };
+
+  /** Show or hide the on-map legend (PNG exports control theirs separately). */
+  AtlasMap.prototype.setLegendVisible = function (visible) {
+    this._legendVisible = !!visible;
+    this._updateLegend();
+  };
+
+  /** Set a map title, shown on the map and included in PNG exports. */
+  AtlasMap.prototype.setTitle = function (title) {
+    this._title = title || null;
+    var container = this.map.getContainer();
+    if (!this._title) {
+      if (this._titleEl) { this._titleEl.remove(); this._titleEl = null; }
+      return;
+    }
+    if (!this._titleEl) {
+      this._titleEl = document.createElement('div');
+      this._titleEl.className = 'atlas-title';
+      this._titleEl.style.cssText =
+        'position:absolute;left:10px;top:10px;z-index:5;max-width:60%;' +
+        'background:rgba(255,255,255,0.93);border:1px solid rgba(0,0,0,0.18);border-radius:8px;' +
+        'padding:7px 12px;font:600 15px/1.3 system-ui,sans-serif;color:#1f2937;' +
+        'box-shadow:0 1px 4px rgba(0,0,0,0.12)';
+      container.appendChild(this._titleEl);
+    }
+    this._titleEl.textContent = this._title;
   };
 
   AtlasMap.prototype._wirePopup = function (layerId) {
@@ -471,17 +765,18 @@
   /**
    * Add a dataset to the map.
    * data: GeoJSON object | dataset id string | URL string
-   * options: { mapType, valueProperty, fit, id }
+   * options: { mapType, valueProperty, fit, id, name }
    * Returns a promise resolving to the layerset id.
    */
   AtlasMap.prototype.addData = function (data, options) {
     options = options || {};
     var self = this;
-    return this._resolveData(data).then(function (geojson) {
-      var fc = toFeatureCollection(geojson);
+    return this._resolveData(data).then(function (resolved) {
+      var fc = toFeatureCollection(resolved.geojson);
       var src = options.id || 'atlas-data-' + (++self._counter);
       self._layersets[src] = {
         geojson: fc,
+        name: options.name || resolved.name || 'Data layer',
         mapType: options.mapType || 'pins',
         valueProperty: options.valueProperty || null,
         layerIds: []
@@ -498,14 +793,17 @@
   };
 
   AtlasMap.prototype._resolveData = function (data) {
-    if (!data) return Promise.resolve(null);
-    if (typeof data === 'object') return Promise.resolve(data);
+    if (!data) return Promise.resolve({ geojson: null, name: null });
+    if (typeof data === 'object') return Promise.resolve({ geojson: data, name: data.name || null });
     if (/^https?:\/\//.test(data) || data.indexOf('/') === 0) {
       return fetch(data).then(function (r) { return r.json(); }).then(function (body) {
-        return body.dataset ? body.dataset.geojson : body;
+        var record = body.dataset || body;
+        return { geojson: record.geojson || record, name: record.name || null };
       });
     }
-    return this.client.getDataset(data).then(function (record) { return record.geojson; });
+    return this.client.getDataset(data).then(function (record) {
+      return { geojson: record.geojson, name: record.name || data };
+    });
   };
 
   AtlasMap.prototype.removeData = function (src) {
@@ -517,6 +815,7 @@
     });
     if (map.getSource(src)) map.removeSource(src);
     delete this._layersets[src];
+    this._updateLegend();
   };
 
   AtlasMap.prototype.clearData = function () {
@@ -528,9 +827,11 @@
     var entry = this._layersets[src];
     if (!entry) return;
     var geojson = entry.geojson;
+    var name = entry.name;
     this.removeData(src);
     this._layersets[src] = {
       geojson: geojson,
+      name: name,
       mapType: mapType,
       valueProperty: valueProperty !== undefined ? valueProperty : entry.valueProperty,
       layerIds: []
@@ -544,6 +845,7 @@
       var e = self._layersets[src];
       return {
         id: src,
+        name: e.name,
         mapType: e.mapType,
         valueProperty: e.valueProperty,
         featureCount: e.geojson.features.length,
@@ -599,12 +901,62 @@
     if (bounds) this.map.fitBounds(bounds, { padding: 60, maxZoom: 12 });
   };
 
-  /** Export the current view as a PNG data URL (or trigger a download). */
-  AtlasMap.prototype.exportPNG = function (filename) {
+  /**
+   * Export the current view as a PNG data URL (or trigger a download).
+   * Every export includes the legend (when data layers exist), the map
+   * title, and basemap attribution. options: { legend, title }.
+   */
+  AtlasMap.prototype.exportPNG = function (filename, options) {
+    options = options || {};
+    var self = this;
     var map = this.map;
     return new Promise(function (resolve) {
       map.once('idle', function () {
-        var dataUrl = map.getCanvas().toDataURL('image/png');
+        var mapCanvas = map.getCanvas();
+        var out = document.createElement('canvas');
+        out.width = mapCanvas.width;
+        out.height = mapCanvas.height;
+        var ctx = out.getContext('2d');
+        ctx.drawImage(mapCanvas, 0, 0);
+
+        // Draw annotations in CSS pixels regardless of devicePixelRatio.
+        var scale = mapCanvas.width / map.getContainer().clientWidth || 1;
+        var w = mapCanvas.width / scale;
+        var h = mapCanvas.height / scale;
+        ctx.save();
+        ctx.scale(scale, scale);
+
+        var title = options.title !== undefined ? options.title : self._title;
+        if (title) {
+          ctx.font = '600 16px system-ui, sans-serif';
+          var titleW = ctx.measureText(title).width;
+          ctx.fillStyle = 'rgba(255,255,255,0.93)';
+          ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+          roundRect(ctx, 10, 10, titleW + 24, 34, 8);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = '#1f2937';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(title, 22, 27);
+          ctx.textBaseline = 'alphabetic';
+        }
+
+        if (options.legend !== false) {
+          ctx.textBaseline = 'top';
+          drawLegendOnCanvas(ctx, self._legendModels(), 10, h - 12);
+          ctx.textBaseline = 'alphabetic';
+        }
+
+        var attribution = attributionText(map);
+        ctx.font = '10px system-ui, sans-serif';
+        var attrW = ctx.measureText(attribution).width;
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fillRect(w - attrW - 12, h - 16, attrW + 12, 16);
+        ctx.fillStyle = '#333';
+        ctx.fillText(attribution, w - attrW - 6, h - 5);
+
+        ctx.restore();
+        var dataUrl = out.toDataURL('image/png');
         if (filename) {
           var a = document.createElement('a');
           a.href = dataUrl;
@@ -659,6 +1011,8 @@
         }
 
         var atlasMap = new AtlasMap(map, client, maplibregl);
+        atlasMap._legendVisible = options.legend !== false;
+        if (options.title) atlasMap.setTitle(options.title);
 
         var data = options.data || options.dataset || options.dataUrl;
         var ready = new Promise(function (resolve) { map.once('load', resolve); });
@@ -668,6 +1022,7 @@
             .addData(data, {
               mapType: options.mapType || 'pins',
               valueProperty: options.valueProperty || null,
+              name: options.dataName || null,
               fit: options.fitData !== false
             })
             .then(function () { return atlasMap; });
@@ -753,7 +1108,7 @@
   // -------------------------------------------------------------------------
 
   var Atlas = {
-    version: '0.1.0',
+    version: '0.2.0',
     Client: Client,
     createMap: createMap,
     csvToGeoJSON: csvToGeoJSON,
@@ -761,7 +1116,9 @@
       toFeatureCollection: toFeatureCollection,
       numericProperties: numericProperties,
       dataBounds: dataBounds,
-      parseCSV: parseCSV
+      parseCSV: parseCSV,
+      buildLegend: buildLegend,
+      formatNumber: formatNumber
     }
   };
 

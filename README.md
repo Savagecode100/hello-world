@@ -45,12 +45,32 @@ Open http://localhost:8787 and you can:
   | Choropleth | Polygons (states, counties) shaded by a value |
   | Route / network | Lines, corridors, networks |
 
-- **Save datasets to the server** so they're available to the API, embeds, and the SDK.
-- **Export PNG** of the current view, **fit to data**, and **copy an embed link**
-  that reproduces the current map.
+- **Automatic legends** — every map type generates a legend (cluster sizes, color
+  ramps with real min/max values, bubble scales). Toggle it on the screen; it is
+  **always baked into PNG exports**, along with your map title and basemap attribution.
+- **Customize the output** — set a map title (shown on the map and in exports) and
+  control the legend per map or per embed.
+- **Publish datasets as open data** so they're available to the API, embeds, and the SDK.
+- **Share & embed** — one dialog gives you a shareable link to the live interactive
+  map, a copy-paste iframe snippet, and a ready-made SDK snippet, all reproducing
+  your exact view, style, map type, title, and legend settings.
+- **Export PNG** of the current view (legend included) and **fit to data**.
 
 A sample dataset (`acme-locations` — 40 fictional company locations across the USA
 with revenue and headcount) ships preloaded so everything is demoable immediately.
+
+## Open data by design
+
+Every dataset published to an Atlas server is **open data**:
+
+- **Licensed** — CC BY 4.0 by default (override with a `license` field on upload).
+- **Cataloged** — http://localhost:8787/data.html lists every dataset with its
+  license, download link, interactive map, and an "open in studio" deep link.
+- **Downloadable** — raw GeoJSON at `GET /api/datasets/:id/download`, no auth, CORS open.
+- **Logged** — every dataset creation and deletion is appended to a public,
+  append-only activity log (`GET /api/log`, also rendered on the catalog page).
+
+The studio tells users this before they publish, so nothing becomes public silently.
 
 ## REST API
 
@@ -62,10 +82,12 @@ All endpoints return JSON and send permissive CORS headers.
 | `GET /api/styles` | Basemap style catalog (id, name, MapLibre style) |
 | `GET /api/maptypes` | Preloaded map type catalog |
 | `GET /api/geocode?q=Tokyo&limit=5` | Geocode any place in the world |
-| `GET /api/datasets` | List stored datasets |
-| `POST /api/datasets` | Store a dataset: `{ id?, name?, description?, geojson }` |
+| `GET /api/datasets` | List stored datasets (with licenses) |
+| `POST /api/datasets` | Publish a dataset: `{ id?, name?, description?, license?, source?, geojson }` |
 | `GET /api/datasets/:id` | Fetch a dataset with its GeoJSON |
+| `GET /api/datasets/:id/download` | Raw GeoJSON download (open data) |
 | `DELETE /api/datasets/:id` | Delete a dataset |
+| `GET /api/log?limit=100` | Public activity log of all dataset events |
 | `GET /api/map?style=dark&maptype=bubble&dataset=acme-locations&value=revenue_musd&center=-96,38&zoom=4` | A renderable "map spec" (style + data + view) consumable by the SDK, plus its embed URL |
 | `GET /embed?…` (same params) | A full HTML page rendering that map — iframe it anywhere |
 
@@ -93,13 +115,17 @@ tag. It loads MapLibre GL automatically.
     mapType: 'clusters',            // pins | clusters | heatmap | bubble | choropleth | route
     dataset: 'acme-locations',      // or data: <GeoJSON>, or dataUrl: '<url>'
     valueProperty: 'revenue_musd',  // drives bubble size / heat weight / choropleth shade
+    title: 'Acme US Footprint',     // shown on the map and in PNG exports
+    legend: true,                   // on-map legend (default: true)
     center: [-96, 38], zoom: 4
   }).then(async (map) => {
     await map.flyToPlace('Chicago');        // geocode + fly anywhere
-    map.addData(myGeoJSON, { mapType: 'heatmap' });
+    map.addData(myGeoJSON, { mapType: 'heatmap', name: 'My layer' });
     map.setBasemap('dark');                 // data layers survive style switches
-    map.exportPNG('map.png');               // download the current view
-    map.map;                                // escape hatch: the raw MapLibre map
+    map.setTitle('Q3 Coverage');            // customize output any time
+    map.setLegendVisible(false);            // hide on screen…
+    map.exportPNG('map.png');               // …but PNGs always include legend,
+    map.map;                                //    title, and attribution
   });
 </script>
 ```
@@ -120,13 +146,20 @@ See it all working: http://localhost:8787/examples/embed-example.html and
 
 ### SDK surface
 
-- `Atlas.createMap(container, options) → Promise<AtlasMap>`
+- `Atlas.createMap(container, options) → Promise<AtlasMap>` — options include
+  `style`, `mapType`, `dataset`/`data`/`dataUrl`, `valueProperty`, `title`,
+  `legend`, `center`, `zoom`, `interactive`, `fitData`
 - `AtlasMap`: `addData`, `removeData`, `clearData`, `setMapType`, `setBasemap`,
-  `flyToPlace`, `fitToData`, `exportPNG`, `listLayersets`, `remove`, `.map` (raw MapLibre)
+  `setTitle`, `setLegendVisible`, `flyToPlace`, `fitToData`,
+  `exportPNG(filename, { legend, title })`, `listLayersets`, `remove`, `.map` (raw MapLibre)
 - `Atlas.Client`: `geocode`, `getStyles`, `getMapTypes`, `listDatasets`,
   `getDataset`, `createDataset`, `deleteDataset`, `embedUrl`, `health`
 - `Atlas.csvToGeoJSON(text)` — CSV → GeoJSON with lat/lng auto-detection
-- `Atlas.utils` — `toFeatureCollection`, `dataBounds`, `numericProperties`, `parseCSV`
+- `Atlas.utils` — `toFeatureCollection`, `dataBounds`, `numericProperties`,
+  `parseCSV`, `buildLegend`, `formatNumber`
+
+Embed URL parameters (`/embed?…`): `dataset`, `maptype`, `value`, `style`,
+`center`, `zoom`, `title`, `legend=false`, `interactive=false`.
 
 ## Architecture
 

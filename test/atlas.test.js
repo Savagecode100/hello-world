@@ -155,3 +155,102 @@ test('SDK utilities: CSV without coordinates throws a helpful error', async () =
   await import('../sdk/atlas-sdk.js');
   assert.throws(() => globalThis.Atlas.csvToGeoJSON('a,b\n1,2\n'), /latitude\/longitude/);
 });
+
+test('datasets are open data: default license, public log, raw download', async () => {
+  const geojson = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: { name: 'A' }, geometry: { type: 'Point', coordinates: [0, 0] } }
+    ]
+  };
+  const createRes = await fetch(`${BASE}/api/datasets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'opendata-test', name: 'Open data test', geojson })
+  });
+  const { dataset: meta } = await createRes.json();
+  assert.equal(meta.license, 'CC BY 4.0');
+
+  // Raw GeoJSON download with attachment headers
+  const dl = await fetch(`${BASE}/api/datasets/opendata-test/download`);
+  assert.equal(dl.status, 200);
+  assert.match(dl.headers.get('content-disposition'), /opendata-test\.geojson/);
+  const raw = await dl.json();
+  assert.equal(raw.type, 'FeatureCollection');
+  assert.equal(raw.features.length, 1);
+
+  await fetch(`${BASE}/api/datasets/opendata-test`, { method: 'DELETE' });
+
+  // Both events are recorded in the public activity log
+  const { events } = await (await fetch(`${BASE}/api/log`)).json();
+  const created = events.find((e) => e.event === 'dataset.created' && e.dataset === 'opendata-test');
+  const deleted = events.find((e) => e.event === 'dataset.deleted' && e.dataset === 'opendata-test');
+  assert.ok(created, 'dataset.created not logged');
+  assert.equal(created.license, 'CC BY 4.0');
+  assert.ok(deleted, 'dataset.deleted not logged');
+});
+
+test('custom license is respected on upload', async () => {
+  const geojson = { type: 'FeatureCollection', features: [] };
+  const res = await fetch(`${BASE}/api/datasets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'license-test', geojson, license: 'ODbL' })
+  });
+  const { dataset } = await res.json();
+  assert.equal(dataset.license, 'ODbL');
+  await fetch(`${BASE}/api/datasets/license-test`, { method: 'DELETE' });
+});
+
+test('embed page passes legend and title options to the SDK', async () => {
+  const res = await fetch(`${BASE}/embed?dataset=acme-locations&legend=false&title=Quarterly+Footprint`);
+  const html = await res.text();
+  assert.ok(html.includes('"legend":false'));
+  assert.ok(html.includes('"title":"Quarterly Footprint"'));
+
+  const defaults = await (await fetch(`${BASE}/embed?dataset=acme-locations`)).text();
+  assert.ok(defaults.includes('"legend":true'), 'legend should default to on');
+});
+
+test('open data catalog page is served', async () => {
+  const res = await fetch(`${BASE}/data.html`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.ok(html.includes('Open Data Catalog'));
+  assert.ok(html.includes('/api/log'));
+});
+
+test('SDK buildLegend produces correct models per map type', async () => {
+  await import('../sdk/atlas-sdk.js');
+  const { buildLegend } = globalThis.Atlas.utils;
+  const points = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: { revenue: 10 }, geometry: { type: 'Point', coordinates: [0, 0] } },
+      { type: 'Feature', properties: { revenue: 5000 }, geometry: { type: 'Point', coordinates: [1, 1] } }
+    ]
+  };
+
+  const pins = buildLegend({ geojson: points, mapType: 'pins', name: 'Stores' });
+  assert.equal(pins.title, 'Stores');
+  assert.equal(pins.items[0].kind, 'dot');
+  assert.match(pins.items[0].label, /2 locations/);
+
+  const clusters = buildLegend({ geojson: points, mapType: 'clusters' });
+  assert.equal(clusters.items.length, 4);
+  assert.ok(clusters.items.every((i) => i.kind === 'dot'));
+
+  const bubble = buildLegend({ geojson: points, mapType: 'bubble', valueProperty: 'revenue' });
+  assert.equal(bubble.items[0].kind, 'circles');
+  assert.equal(bubble.items[0].from, '10');
+  assert.equal(bubble.items[0].to, '5,000');
+  assert.match(bubble.subtitle, /revenue/);
+
+  const heat = buildLegend({ geojson: points, mapType: 'heatmap' });
+  assert.equal(heat.items[0].kind, 'gradient');
+  assert.ok(heat.items[0].colors.length >= 2);
+
+  const choropleth = buildLegend({ geojson: points, mapType: 'choropleth', valueProperty: 'revenue' });
+  assert.equal(choropleth.items[0].kind, 'gradient');
+  assert.equal(choropleth.items[0].to, '5,000');
+});

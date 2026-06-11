@@ -57,13 +57,41 @@ async function ensureDataDir() {
         id,
         name: geojson.name || id,
         description: geojson.description || 'Built-in sample dataset',
+        license: 'CC BY 4.0',
+        source: 'Atlas built-in sample',
         created: new Date().toISOString(),
         featureCount: geojson.features?.length ?? 0,
         geojson
       };
       await fs.writeFile(target, JSON.stringify(record));
+      await appendLog({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, via: 'seed' });
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Open-data activity log: every dataset event is appended to a public,
+// append-only JSONL log served at /api/log.
+// ---------------------------------------------------------------------------
+
+const LOG_FILE = () => path.join(DATA_DIR, 'activity.jsonl');
+
+async function appendLog(event) {
+  const line = JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n';
+  await fs.appendFile(LOG_FILE(), line).catch((err) => console.error('log write failed:', err.message));
+}
+
+async function readLog(limit = 100) {
+  let raw = '';
+  try {
+    raw = await fs.readFile(LOG_FILE(), 'utf8');
+  } catch {
+    return [];
+  }
+  const lines = raw.trim().split('\n').filter(Boolean);
+  return lines.slice(-limit).reverse().map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
 }
 
 function datasetPath(id) {
@@ -199,7 +227,9 @@ function embedPage(params) {
     center: params.has('center') ? params.get('center').split(',').map(Number) : [0, 20],
     dataset: params.get('dataset') || null,
     valueProperty: params.get('value') || null,
-    interactive: params.get('interactive') !== 'false'
+    interactive: params.get('interactive') !== 'false',
+    legend: params.get('legend') !== 'false',
+    title: params.get('title') || null
   };
   return `<!doctype html>
 <html>
@@ -239,7 +269,7 @@ async function handleAPI(req, res, url) {
   }
 
   if (route === '/api/health') {
-    sendJSON(res, 200, { ok: true, service: 'atlas', version: '0.1.0' });
+    sendJSON(res, 200, { ok: true, service: 'atlas', version: '0.2.0' });
     return;
   }
 
@@ -292,13 +322,41 @@ async function handleAPI(req, res, url) {
       id,
       name: body.name || geojson.name || id,
       description: body.description || '',
+      // All published datasets are open data: default license is CC BY 4.0.
+      license: body.license || 'CC BY 4.0',
+      source: body.source || '',
       created: new Date().toISOString(),
       featureCount: geojson.type === 'FeatureCollection' ? geojson.features.length : 1,
       geojson
     };
     await fs.writeFile(datasetPath(id), JSON.stringify(record));
+    await appendLog({ event: 'dataset.created', dataset: id, name: record.name, featureCount: record.featureCount, license: record.license, via: 'api' });
     const { geojson: _g, ...meta } = record;
     sendJSON(res, 201, { dataset: meta });
+    return;
+  }
+
+  // Public activity log: every dataset event, newest first.
+  if (route === '/api/log') {
+    const limit = Math.min(Number(url.searchParams.get('limit') || 100), 1000);
+    sendJSON(res, 200, { events: await readLog(limit) });
+    return;
+  }
+
+  // Raw open-data download of a dataset's GeoJSON.
+  const downloadMatch = route.match(/^\/api\/datasets\/([A-Za-z0-9_-]+)\/download$/);
+  if (downloadMatch && req.method === 'GET') {
+    const record = await readDataset(downloadMatch[1]);
+    if (!record) {
+      sendJSON(res, 404, { error: `Dataset not found: ${downloadMatch[1]}` });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/geo+json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${record.id}.geojson"`,
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify(record.geojson));
     return;
   }
 
@@ -317,6 +375,7 @@ async function handleAPI(req, res, url) {
     if (req.method === 'DELETE') {
       try {
         await fs.unlink(datasetPath(id));
+        await appendLog({ event: 'dataset.deleted', dataset: id, via: 'api' });
         sendJSON(res, 200, { deleted: id });
       } catch {
         sendJSON(res, 404, { error: `Dataset not found: ${id}` });

@@ -47,15 +47,20 @@
     </section>
 
     <section class="panel">
-      <h2 class="panel-title">Tools</h2>
+      <h2 class="panel-title">Map output</h2>
+      <div class="control-stack">
+        <input id="map-title" type="text" placeholder="Map title (shown on map &amp; PNG exports)">
+        <label class="check-row"><input id="legend-toggle" type="checkbox" checked> Show legend (always included in PNG exports)</label>
+      </div>
       <div class="button-row">
         <button id="fit-data" class="btn">Fit to data</button>
         <button id="export-png" class="btn">Export PNG</button>
-        <button id="copy-embed" class="btn">Copy embed link</button>
+        <button id="share-embed" class="btn primary">Share &amp; embed…</button>
       </div>
     </section>
 
     <footer class="panel footnote">
+      <a href="/data.html" target="_blank">Open data catalog</a> ·
       <a href="/examples/embed-example.html" target="_blank">SDK examples</a> ·
       <a href="/api/health" target="_blank">API</a> ·
       <span id="status-zoom"></span>
@@ -64,6 +69,31 @@
 
   <main id="map"></main>
   <div id="toast" class="toast hidden"></div>
+
+  <div id="share-dialog" class="dialog-backdrop hidden">
+    <div class="dialog">
+      <div class="dialog-head">
+        <h2>Share &amp; embed this map</h2>
+        <button id="share-close" class="remove-layer" title="Close">✕</button>
+      </div>
+      <p id="share-note" class="empty-hint"></p>
+      <label class="dialog-label">Shareable link (interactive map)</label>
+      <div class="copy-row">
+        <input id="share-url" type="text" readonly>
+        <button class="btn copy-btn" data-copy="share-url">Copy</button>
+      </div>
+      <label class="dialog-label">Embed in any website or app (iframe)</label>
+      <div class="copy-row">
+        <textarea id="share-iframe" rows="4" readonly></textarea>
+        <button class="btn copy-btn" data-copy="share-iframe">Copy</button>
+      </div>
+      <label class="dialog-label">Render with the Atlas SDK</label>
+      <div class="copy-row">
+        <textarea id="share-sdk" rows="7" readonly></textarea>
+        <button class="btn copy-btn" data-copy="share-sdk">Copy</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/sdk/atlas-sdk.js"></script>
   <script src="/js/app.js"></script>

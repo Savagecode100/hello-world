@@ -1,6 +1,6 @@
 {
   "name": "atlas-gis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Atlas — an intuitive GIS and map-making studio with a REST API and embeddable JavaScript SDK",
   "type": "module",
   "main": "server/index.js",
