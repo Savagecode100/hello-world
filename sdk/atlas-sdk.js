@@ -176,6 +176,149 @@
     return found ? [[w, s], [e, n]] : null;
   }
 
+  // -------------------------------------------------------------------------
+  // Time-series helpers. A temporal FeatureCollection carries per-feature
+  // `timeSeries` arrays of { timestamp, properties, geometry? } snapshots.
+  // -------------------------------------------------------------------------
+
+  function toTime(value) {
+    if (value == null) return NaN;
+    if (typeof value === 'number') return value;
+    var n = Date.parse(value);
+    if (!isNaN(n)) return n;
+    var asNum = Number(value);
+    return isNaN(asNum) ? NaN : asNum;
+  }
+
+  function isTemporal(fc) {
+    if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) return false;
+    return fc.features.some(function (f) {
+      return Array.isArray(f.timeSeries) && f.timeSeries.length > 0;
+    });
+  }
+
+  function collectTimestamps(fc) {
+    var seen = {};
+    var order = [];
+    (fc.features || []).forEach(function (f) {
+      if (!Array.isArray(f.timeSeries)) return;
+      f.timeSeries.forEach(function (snap) {
+        if (!snap || snap.timestamp == null) return;
+        var t = toTime(snap.timestamp);
+        if (isNaN(t)) return;
+        if (!(t in seen)) { seen[t] = snap.timestamp; order.push(t); }
+      });
+    });
+    order.sort(function (a, b) { return a - b; });
+    return order.map(function (t) { return seen[t]; });
+  }
+
+  // Min/max of a property across every snapshot, so styling stays stable
+  // across frames during animation.
+  function temporalValueStats(fc, property) {
+    var min = Infinity, max = -Infinity;
+    function consider(v) {
+      var n = Number(v);
+      if (isFinite(n)) { if (n < min) min = n; if (n > max) max = n; }
+    }
+    (fc.features || []).forEach(function (f) {
+      if (f.properties) consider(f.properties[property]);
+      if (Array.isArray(f.timeSeries)) {
+        f.timeSeries.forEach(function (snap) {
+          if (snap && snap.properties) consider(snap.properties[property]);
+        });
+      }
+    });
+    if (!isFinite(min)) { min = 0; max = 1; }
+    if (min === max) max = min + 1;
+    return { min: min, max: max };
+  }
+
+  // Numeric property names found in base properties or any snapshot.
+  function temporalNumericProperties(fc) {
+    var props = {};
+    function scan(obj) {
+      if (!obj) return;
+      Object.keys(obj).forEach(function (k) {
+        if (k === '__timestamp') return;
+        if (isFinite(Number(obj[k])) && obj[k] !== '' && obj[k] !== null) props[k] = true;
+      });
+    }
+    (fc.features || []).slice(0, 200).forEach(function (f) {
+      scan(f.properties);
+      if (Array.isArray(f.timeSeries)) {
+        f.timeSeries.forEach(function (snap) { if (snap) scan(snap.properties); });
+      }
+    });
+    return Object.keys(props);
+  }
+
+  function lerp(a, b, frac) { return a + (b - a) * frac; }  function frameFeature(feature, targetTime, interpolate) {
+    var series = feature.timeSeries;
+    if (!Array.isArray(series) || series.length === 0) return feature;
+    var sorted = series.filter(function (s) {
+      return s && s.timestamp != null && !isNaN(toTime(s.timestamp));
+    }).sort(function (a, b) { return toTime(a.timestamp) - toTime(b.timestamp); });
+    if (sorted.length === 0) return feature;
+
+    var prev = null, next = null;
+    sorted.forEach(function (snap) {
+      var t = toTime(snap.timestamp);
+      if (t <= targetTime) prev = snap;
+      if (t >= targetTime && next === null) next = snap;
+    });
+    if (!prev) return null; // not born yet
+
+    var props = {};
+    var k;
+    for (k in feature.properties) props[k] = feature.properties[k];
+    var prevProps = prev.properties || {};
+
+    if (interpolate === 'linear' && next && next !== prev) {
+      var t0 = toTime(prev.timestamp), t1 = toTime(next.timestamp);
+      var frac = t1 === t0 ? 0 : (targetTime - t0) / (t1 - t0);
+      var nextProps = next.properties || {};
+      var keys = {};
+      for (k in prevProps) keys[k] = true;
+      for (k in nextProps) keys[k] = true;
+      for (k in keys) {
+        var a = prevProps[k], b = nextProps[k];
+        props[k] = (typeof a === 'number' && typeof b === 'number') ? lerp(a, b, frac)
+          : (a !== undefined ? a : b);
+      }
+    } else {
+      for (k in prevProps) props[k] = prevProps[k];
+    }
+    props.__timestamp = prev.timestamp;
+
+    var geometry = prev.geometry || feature.geometry;
+    if (interpolate === 'linear' && next && next !== prev &&
+        prev.geometry && next.geometry &&
+        prev.geometry.type === 'Point' && next.geometry.type === 'Point') {
+      var g0 = toTime(prev.timestamp), g1 = toTime(next.timestamp);
+      var gf = g1 === g0 ? 0 : (targetTime - g0) / (g1 - g0);
+      geometry = {
+        type: 'Point',
+        coordinates: [
+          lerp(prev.geometry.coordinates[0], next.geometry.coordinates[0], gf),
+          lerp(prev.geometry.coordinates[1], next.geometry.coordinates[1], gf)
+        ]
+      };
+    }
+    return { type: 'Feature', properties: props, geometry: geometry };
+  }
+
+  function frameAt(fc, timestamp, interpolate) {
+    var mode = interpolate || (fc.temporal && fc.temporal.interpolate) || 'step';
+    var targetTime = toTime(timestamp);
+    var features = [];
+    (fc.features || []).forEach(function (feature) {
+      var framed = frameFeature(feature, targetTime, mode);
+      if (framed) features.push(framed);
+    });
+    return { type: 'FeatureCollection', features: features };
+  }
+
   function popupHTML(properties) {
     var rows = Object.keys(properties || {}).map(function (k) {
       return '<tr><td style="padding:2px 8px 2px 0;color:#666;vertical-align:top">' + escapeHTML(k) +
@@ -425,7 +568,11 @@
     var builder = LAYER_BUILDERS[entry.mapType] || LAYER_BUILDERS.pins;
     var ctx = {
       valueProperty: entry.valueProperty,
-      stats: entry.valueProperty ? valueStats(entry.geojson, entry.valueProperty) : { min: 0, max: 1 }
+      stats: entry.valueProperty
+        ? (entry.temporal && entry.fullData
+            ? temporalValueStats(entry.fullData, entry.valueProperty)
+            : valueStats(entry.geojson, entry.valueProperty))
+        : { min: 0, max: 1 }
     };
     var layers = builder(src, ctx);
     var self = this;
@@ -533,7 +680,12 @@
       geojson: geojson,
       mapType: mapType,
       valueProperty: valueProperty !== undefined ? valueProperty : entry.valueProperty,
-      layerIds: []
+      layerIds: [],
+      temporal: entry.temporal,
+      fullData: entry.fullData,
+      timestamps: entry.timestamps,
+      interpolate: entry.interpolate,
+      frameIndex: entry.frameIndex
     };
     this._mount(src);
   };
@@ -542,12 +694,16 @@
     var self = this;
     return Object.keys(this._layersets).map(function (src) {
       var e = self._layersets[src];
+      var fc = e.temporal && e.fullData ? e.fullData : e.geojson;
       return {
         id: src,
         mapType: e.mapType,
         valueProperty: e.valueProperty,
-        featureCount: e.geojson.features.length,
-        numericProperties: numericProperties(e.geojson)
+        featureCount: fc.features.length,
+        numericProperties: e.temporal ? temporalNumericProperties(fc) : numericProperties(fc),
+        temporal: !!e.temporal,
+        frameCount: e.temporal ? e.timestamps.length : 0,
+        frameIndex: e.temporal ? e.frameIndex : -1
       };
     });
   };
@@ -556,6 +712,104 @@
     var e = this._layersets[src];
     return e ? e.geojson : null;
   };
+
+  // -----------------------------------------------------------------------
+  // Time-series / time-lapse support
+  // -----------------------------------------------------------------------
+
+  /**
+   * Add a temporal dataset to the map. Behaves like addData, but the source
+   * is rendered one frame at a time. Returns a promise resolving to the
+   * layerset id. Use createPlayer(src) to animate it.
+   * options: { mapType, valueProperty, fit, id, interpolate, frameIndex }
+   */
+  AtlasMap.prototype.addTimeSeriesData = function (data, options) {
+    options = options || {};
+    var self = this;
+    return this._resolveData(data).then(function (geojson) {
+      var fc = toFeatureCollection(geojson);
+      if (!isTemporal(fc)) {
+        throw new Error('Dataset is not temporal (no feature has a timeSeries array)');
+      }
+      var src = options.id || 'atlas-data-' + (++self._counter);
+      var timestamps = collectTimestamps(fc);
+      var interpolate = options.interpolate || (fc.temporal && fc.temporal.interpolate) || 'step';
+      var frameIndex = options.frameIndex != null ? options.frameIndex : 0;
+      var frame = frameAt(fc, timestamps[frameIndex], interpolate);
+      self._layersets[src] = {
+        geojson: frame,
+        fullData: fc,
+        temporal: true,
+        timestamps: timestamps,
+        interpolate: interpolate,
+        frameIndex: frameIndex,
+        mapType: options.mapType || 'pins',
+        valueProperty: options.valueProperty || null,
+        layerIds: []
+      };
+      var mount = function () { self._mount(src); };
+      if (self.map.isStyleLoaded()) mount();
+      else self.map.once('load', mount);
+      if (options.fit !== false) {
+        var bounds = dataBounds(fc.features.length ? { type: 'FeatureCollection', features: fc.features.map(function (f) {
+          return { type: 'Feature', geometry: f.geometry, properties: {} };
+        }) } : fc);
+        if (bounds) self.map.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 800 });
+      }
+      return src;
+    });
+  };
+
+  AtlasMap.prototype.isTemporalLayer = function (src) {
+    var e = this._layersets[src];
+    return !!(e && e.temporal);
+  };
+
+  AtlasMap.prototype.getTimestamps = function (src) {
+    var e = this._layersets[src];
+    return e && e.temporal ? e.timestamps.slice() : [];
+  };
+
+  AtlasMap.prototype.getFrameIndex = function (src) {
+    var e = this._layersets[src];
+    return e && e.temporal ? e.frameIndex : -1;
+  };
+
+  /** Render the temporal layerset at a given frame index. */
+  AtlasMap.prototype.setFrame = function (src, frameIndex) {
+    var e = this._layersets[src];
+    if (!e || !e.temporal) return null;
+    var count = e.timestamps.length;
+    if (!count) return null;
+    var idx = Math.max(0, Math.min(count - 1, frameIndex | 0));
+    e.frameIndex = idx;
+    var timestamp = e.timestamps[idx];
+    var frame = frameAt(e.fullData, timestamp, e.interpolate);
+    e.geojson = frame;
+    var source = this.map.getSource(src);
+    if (source && source.setData) source.setData(frame);
+    return { index: idx, timestamp: timestamp, frameCount: count };
+  };
+
+  /** Render the temporal layerset at an arbitrary timestamp (for smooth scrubbing). */
+  AtlasMap.prototype.setFrameAtTime = function (src, timestamp) {
+    var e = this._layersets[src];
+    if (!e || !e.temporal) return null;
+    var frame = frameAt(e.fullData, timestamp, e.interpolate);
+    e.geojson = frame;
+    var source = this.map.getSource(src);
+    if (source && source.setData) source.setData(frame);
+    return { timestamp: timestamp };
+  };
+
+  /** Create a playback controller for a temporal layerset. */
+  AtlasMap.prototype.createPlayer = function (src, options) {
+    if (!this.isTemporalLayer(src)) {
+      throw new Error('Layerset is not temporal: ' + src);
+    }
+    return new TimeSeriesPlayer(this, src, options);
+  };
+
 
   /** Switch basemap by preset id, style URL, or style object. Data layers persist. */
   AtlasMap.prototype.setBasemap = function (style) {
@@ -620,6 +874,325 @@
   AtlasMap.prototype.remove = function () {
     this.map.remove();
   };
+
+  // -------------------------------------------------------------------------
+  // TimeSeriesPlayer: drives frame-by-frame playback of a temporal layerset.
+  // -------------------------------------------------------------------------
+
+  function TimeSeriesPlayer(atlasMap, src, options) {
+    options = options || {};
+    this.atlasMap = atlasMap;
+    this.src = src;
+    this.timestamps = atlasMap.getTimestamps(src);
+    this.frameCount = this.timestamps.length;
+    this.index = atlasMap.getFrameIndex(src) || 0;
+    this.fps = options.fps || 2;          // timeline frames advanced per second
+    this.speed = options.speed || 1;      // playback speed multiplier
+    this.loop = options.loop !== false;   // loop by default
+    this.playing = false;
+    this._raf = null;
+    this._accum = 0;
+    this._lastTs = 0;
+    this._listeners = { frame: [], play: [], pause: [], complete: [] };
+    // Ensure the map shows the current frame.
+    this.atlasMap.setFrame(this.src, this.index);
+  }
+
+  TimeSeriesPlayer.prototype.on = function (event, cb) {
+    if (this._listeners[event]) this._listeners[event].push(cb);
+    return this;
+  };
+
+  TimeSeriesPlayer.prototype._emit = function (event, payload) {
+    (this._listeners[event] || []).forEach(function (cb) {
+      try { cb(payload); } catch (e) { /* listener error */ }
+    });
+  };
+
+  TimeSeriesPlayer.prototype._apply = function () {
+    var info = this.atlasMap.setFrame(this.src, this.index);
+    if (info) {
+      this._emit('frame', {
+        index: info.index,
+        timestamp: info.timestamp,
+        frameCount: info.frameCount,
+        fraction: info.frameCount > 1 ? info.index / (info.frameCount - 1) : 0
+      });
+    }
+  };
+
+  TimeSeriesPlayer.prototype.setIndex = function (index) {
+    this.index = Math.max(0, Math.min(this.frameCount - 1, index | 0));
+    this._apply();
+    return this;
+  };
+
+  /** Seek by a 0..1 fraction of the timeline (used by the scrubber). */
+  TimeSeriesPlayer.prototype.seekFraction = function (fraction) {
+    var idx = Math.round(fraction * (this.frameCount - 1));
+    return this.setIndex(idx);
+  };
+
+  TimeSeriesPlayer.prototype.next = function () {
+    if (this.index >= this.frameCount - 1) {
+      if (this.loop) return this.setIndex(0);
+      return this;
+    }
+    return this.setIndex(this.index + 1);
+  };
+
+  TimeSeriesPlayer.prototype.prev = function () {
+    return this.setIndex(this.index - 1);
+  };
+
+  TimeSeriesPlayer.prototype.play = function () {
+    if (this.playing || this.frameCount < 2) return this;
+    this.playing = true;
+    this._lastTs = 0;
+    this._accum = 0;
+    this._emit('play', { index: this.index });
+    var self = this;
+    var raf = (typeof requestAnimationFrame !== 'undefined')
+      ? requestAnimationFrame
+      : function (cb) { return setTimeout(function () { cb(Date.now()); }, 16); };
+    function step(ts) {
+      if (!self.playing) return;
+      if (!self._lastTs) self._lastTs = ts;
+      var dt = (ts - self._lastTs) / 1000;
+      self._lastTs = ts;
+      self._accum += dt * self.fps * self.speed;
+      while (self._accum >= 1) {
+        self._accum -= 1;
+        if (self.index >= self.frameCount - 1) {
+          if (self.loop) {
+            self.setIndex(0);
+          } else {
+            self.pause();
+            self._emit('complete', { index: self.index });
+            return;
+          }
+        } else {
+          self.setIndex(self.index + 1);
+        }
+      }
+      self._raf = raf(step);
+    }
+    self._raf = raf(step);
+    return this;
+  };
+
+  TimeSeriesPlayer.prototype.pause = function () {
+    if (!this.playing) return this;
+    this.playing = false;
+    if (this._raf != null) {
+      if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(this._raf);
+      else clearTimeout(this._raf);
+      this._raf = null;
+    }
+    this._emit('pause', { index: this.index });
+    return this;
+  };
+
+  TimeSeriesPlayer.prototype.toggle = function () {
+    return this.playing ? this.pause() : this.play();
+  };
+
+  TimeSeriesPlayer.prototype.stop = function () {
+    this.pause();
+    return this.setIndex(0);
+  };
+
+  TimeSeriesPlayer.prototype.setSpeed = function (speed) {
+    this.speed = speed || 1;
+    return this;
+  };
+
+  TimeSeriesPlayer.prototype.setFps = function (fps) {
+    this.fps = fps || 2;
+    return this;
+  };
+
+  // -------------------------------------------------------------------------
+  // Time-lapse export. Two strategies, both capture the live map canvas:
+  //   - exportTimeLapseGIF: loads gif.js from CDN, encodes an animated GIF.
+  //   - exportTimeLapseVideo: uses the MediaRecorder API to produce WebM.
+  // -------------------------------------------------------------------------
+
+  var GIFJS_URL = 'https://unpkg.com/gif.js.optimized@1.0.1/dist/gif.js';
+  var GIFJS_WORKER_URL = 'https://unpkg.com/gif.js.optimized@1.0.1/dist/gif.worker.js';
+  var gifPromise = null;
+
+  function loadGifJs() {
+    if (global.GIF) return Promise.resolve(global.GIF);
+    if (gifPromise) return gifPromise;
+    gifPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = GIFJS_URL;
+      script.onload = function () { resolve(global.GIF); };
+      script.onerror = function () { reject(new Error('Failed to load gif.js from CDN')); };
+      document.head.appendChild(script);
+    });
+    return gifPromise;
+  }
+
+  // Render one frame and wait for the map to settle, then run cb with the canvas.
+  function renderFrameToCanvas(atlasMap, src, index) {
+    return new Promise(function (resolve) {
+      atlasMap.setFrame(src, index);
+      var map = atlasMap.map;
+      var done = false;
+      var finish = function () {
+        if (done) return;
+        done = true;
+        resolve(map.getCanvas());
+      };
+      map.once('idle', finish);
+      map.triggerRepaint();
+      // Safety timeout in case 'idle' never fires.
+      setTimeout(finish, 1500);
+    });
+  }
+
+  function copyCanvas(srcCanvas) {
+    var c = document.createElement('canvas');
+    c.width = srcCanvas.width;
+    c.height = srcCanvas.height;
+    c.getContext('2d').drawImage(srcCanvas, 0, 0);
+    return c;
+  }
+
+  /**
+   * Export the temporal layerset as an animated GIF.
+   * options: { player, frameDelay (ms), quality, filename, onProgress }
+   * Returns a promise resolving to a Blob.
+   */
+  AtlasMap.prototype.exportTimeLapseGIF = function (src, options) {
+    options = options || {};
+    var self = this;
+    var entry = this._layersets[src];
+    if (!entry || !entry.temporal) {
+      return Promise.reject(new Error('Layerset is not temporal: ' + src));
+    }
+    var count = entry.timestamps.length;
+    var startIndex = entry.frameIndex;
+    var frameDelay = options.frameDelay || 500;
+    var onProgress = options.onProgress || function () {};
+
+    return loadGifJs().then(function (GIF) {
+      var canvas = self.map.getCanvas();
+      var gif = new GIF({
+        workers: 2,
+        quality: options.quality || 10,
+        width: canvas.width,
+        height: canvas.height,
+        workerScript: GIFJS_WORKER_URL
+      });
+
+      return new Promise(function (resolve, reject) {
+        var i = 0;
+        function addNext() {
+          if (i >= count) {
+            gif.on('finished', function (blob) {
+              self.setFrame(src, startIndex);
+              if (options.filename) downloadBlob(blob, options.filename);
+              resolve(blob);
+            });
+            gif.render();
+            return;
+          }
+          onProgress({ phase: 'capture', current: i + 1, total: count });
+          renderFrameToCanvas(self, src, i).then(function (frameCanvas) {
+            gif.addFrame(copyCanvas(frameCanvas), { delay: frameDelay, copy: true });
+            i++;
+            addNext();
+          }).catch(reject);
+        }
+        gif.on('progress', function (p) {
+          onProgress({ phase: 'encode', progress: p });
+        });
+        addNext();
+      });
+    });
+  };
+
+  /**
+   * Export the temporal layerset as a WebM video using MediaRecorder.
+   * options: { fps, frameDuration (ms), mimeType, filename, onProgress }
+   * Returns a promise resolving to a Blob.
+   */
+  AtlasMap.prototype.exportTimeLapseVideo = function (src, options) {
+    options = options || {};
+    var self = this;
+    var entry = this._layersets[src];
+    if (!entry || !entry.temporal) {
+      return Promise.reject(new Error('Layerset is not temporal: ' + src));
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      return Promise.reject(new Error('MediaRecorder API is not available in this browser'));
+    }
+    var count = entry.timestamps.length;
+    var startIndex = entry.frameIndex;
+    var frameDuration = options.frameDuration || 600;
+    var onProgress = options.onProgress || function () {};
+
+    var mimeType = options.mimeType;
+    if (!mimeType) {
+      var candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      for (var c = 0; c < candidates.length; c++) {
+        if (MediaRecorder.isTypeSupported(candidates[c])) { mimeType = candidates[c]; break; }
+      }
+    }
+
+    // Draw each captured frame onto an offscreen canvas, recording its stream.
+    var srcCanvas = self.map.getCanvas();
+    var out = document.createElement('canvas');
+    out.width = srcCanvas.width;
+    out.height = srcCanvas.height;
+    var octx = out.getContext('2d');
+    var stream = out.captureStream(0);
+    var track = stream.getVideoTracks()[0];
+    var recorder = new MediaRecorder(stream, mimeType ? { mimeType: mimeType } : undefined);
+    var chunks = [];
+    recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+
+    return new Promise(function (resolve, reject) {
+      recorder.onerror = function (e) { reject(e.error || new Error('Recording failed')); };
+      recorder.onstop = function () {
+        var blob = new Blob(chunks, { type: mimeType || 'video/webm' });
+        self.setFrame(src, startIndex);
+        if (options.filename) downloadBlob(blob, options.filename);
+        resolve(blob);
+      };
+      recorder.start();
+
+      var i = 0;
+      function drawNext() {
+        if (i >= count) {
+          // Give the recorder a tick to flush the last frame.
+          setTimeout(function () { recorder.stop(); }, frameDuration);
+          return;
+        }
+        onProgress({ phase: 'capture', current: i + 1, total: count });
+        renderFrameToCanvas(self, src, i).then(function (frameCanvas) {
+          octx.drawImage(frameCanvas, 0, 0);
+          if (track.requestFrame) track.requestFrame();
+          else if (stream.requestFrame) stream.requestFrame();
+          i++;
+          setTimeout(drawNext, frameDuration);
+        }).catch(reject);
+      }
+      drawNext();
+    });
+  };
+
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
 
   // -------------------------------------------------------------------------
   // createMap entry point
@@ -748,6 +1321,81 @@
     return { type: 'FeatureCollection', features: features };
   }
 
+  // Convert long-format CSV (one row per feature per timestamp) into temporal
+  // GeoJSON. Groups rows by an id column; each row becomes a snapshot.
+  function csvToTimeSeries(text, options) {
+    options = options || {};
+    var rows = parseCSV(text);
+    if (rows.length < 2) throw new Error('CSV needs a header row and at least one data row');
+    var header = rows[0].map(function (h) { return h.trim(); });
+    var lower = header.map(function (h) { return h.toLowerCase(); });
+
+    function findColumn(candidates) {
+      for (var i = 0; i < candidates.length; i++) {
+        var idx = lower.indexOf(candidates[i]);
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    }
+
+    var idIdx = options.idColumn ? lower.indexOf(options.idColumn.toLowerCase())
+      : findColumn(['id', 'feature_id', 'key', 'name']);
+    var timeIdx = options.timeColumn ? lower.indexOf(options.timeColumn.toLowerCase())
+      : findColumn(['timestamp', 'time', 'date', 'datetime', 'year']);
+    var latIdx = options.latColumn ? lower.indexOf(options.latColumn.toLowerCase())
+      : findColumn(['lat', 'latitude', 'y']);
+    var lngIdx = options.lngColumn ? lower.indexOf(options.lngColumn.toLowerCase())
+      : findColumn(['lng', 'lon', 'long', 'longitude', 'x']);
+
+    if (idIdx === -1) throw new Error('Could not find an id column (id / feature_id / key / name)');
+    if (timeIdx === -1) throw new Error('Could not find a timestamp column (timestamp / time / date / year)');
+    if (latIdx === -1 || lngIdx === -1) {
+      throw new Error('Could not find latitude/longitude columns (lat/latitude and lng/lon/longitude)');
+    }
+
+    var map = {};
+    var orderedIds = [];
+    for (var r = 1; r < rows.length; r++) {
+      var cells = rows[r];
+      var id = (cells[idIdx] || '').trim();
+      var timestamp = (cells[timeIdx] || '').trim();
+      var latRaw = (cells[latIdx] || '').trim();
+      var lngRaw = (cells[lngIdx] || '').trim();
+      if (!id || !timestamp || latRaw === '' || lngRaw === '') continue;
+      var lat = Number(latRaw), lng = Number(lngRaw);
+      if (!isFinite(lat) || !isFinite(lng)) continue;
+      var snapProps = {};
+      for (var c = 0; c < header.length; c++) {
+        if (c === idIdx || c === timeIdx || c === latIdx || c === lngIdx) continue;
+        var v = cells[c];
+        snapProps[header[c]] = v !== '' && isFinite(Number(v)) ? Number(v) : v;
+      }
+      if (!map[id]) {
+        map[id] = {
+          type: 'Feature',
+          properties: { name: id },
+          geometry: { type: 'Point', coordinates: [lng, lat] },
+          timeSeries: []
+        };
+        orderedIds.push(id);
+      }
+      map[id].geometry.coordinates = [lng, lat];
+      map[id].timeSeries.push({ timestamp: timestamp, properties: snapProps });
+    }
+
+    var features = orderedIds.map(function (id) { return map[id]; });
+    if (!features.length) throw new Error('No valid rows found (need id, timestamp, lat, lng)');
+    features.forEach(function (f) {
+      f.timeSeries.sort(function (a, b) { return toTime(a.timestamp) - toTime(b.timestamp); });
+    });
+    return {
+      type: 'FeatureCollection',
+      name: options.name || 'Converted time-series',
+      temporal: { property: 'timestamp', interpolate: options.interpolate || 'linear' },
+      features: features
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Exports
   // -------------------------------------------------------------------------
@@ -757,11 +1405,17 @@
     Client: Client,
     createMap: createMap,
     csvToGeoJSON: csvToGeoJSON,
+    csvToTimeSeries: csvToTimeSeries,
+    TimeSeriesPlayer: TimeSeriesPlayer,
     utils: {
       toFeatureCollection: toFeatureCollection,
       numericProperties: numericProperties,
       dataBounds: dataBounds,
-      parseCSV: parseCSV
+      parseCSV: parseCSV,
+      isTemporal: isTemporal,
+      collectTimestamps: collectTimestamps,
+      frameAt: frameAt,
+      temporalNumericProperties: temporalNumericProperties
     }
   };
 

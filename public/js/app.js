@@ -9,6 +9,8 @@
   var activeStyleId = 'streets';
   var layerNames = {}; // layerset id -> display name
   var layerDatasetIds = {}; // layerset id -> server dataset id (when loaded from server)
+  var activePlayer = null; // current TimeSeriesPlayer
+  var activeTemporalSrc = null; // layerset id driving the timeline
 
   var $ = function (sel) { return document.querySelector(sel); };
 
@@ -116,6 +118,21 @@
   }
 
   function loadDataset(ds) {
+    if (ds.temporal) {
+      atlasMap.addTimeSeriesData(ds.id, { mapType: 'bubble' }).then(function (src) {
+        layerNames[src] = ds.name;
+        layerDatasetIds[src] = ds.id;
+        // Default the bubble size to the first numeric snapshot property.
+        var layer = atlasMap.listLayersets().find(function (l) { return l.id === src; });
+        if (layer && layer.numericProperties.length) {
+          atlasMap.setMapType(src, 'bubble', layer.numericProperties[0]);
+        }
+        renderLayerList();
+        activateTimeline(src);
+        toast('Added time-lapse "' + ds.name + '" (' + ds.frameCount + ' frames)');
+      }).catch(function (err) { toast(err.message, true); });
+      return;
+    }
     atlasMap.addData(ds.id, { mapType: 'clusters' }).then(function (src) {
       layerNames[src] = ds.name;
       layerDatasetIds[src] = ds.id;
@@ -135,7 +152,9 @@
       var geojson;
       try {
         if (/\.csv$/i.test(file.name)) {
-          geojson = Atlas.csvToGeoJSON(text);
+          geojson = looksLikeTimeSeriesCSV(text)
+            ? Atlas.csvToTimeSeries(text, { name: file.name.replace(/\.csv$/i, '') })
+            : Atlas.csvToGeoJSON(text);
         } else {
           geojson = JSON.parse(text);
         }
@@ -144,6 +163,21 @@
         return;
       }
       var fc = Atlas.utils.toFeatureCollection(geojson);
+      if (Atlas.utils.isTemporal(fc)) {
+        atlasMap.addTimeSeriesData(fc, { mapType: 'bubble' }).then(function (src) {
+          layerNames[src] = file.name.replace(/\.(csv|geojson|json)$/i, '');
+          var layer = atlasMap.listLayersets().find(function (l) { return l.id === src; });
+          if (layer && layer.numericProperties.length) {
+            atlasMap.setMapType(src, 'bubble', layer.numericProperties[0]);
+          }
+          renderLayerList();
+          activateTimeline(src);
+          toast('Imported time-lapse: ' + fc.features.length + ' features, ' +
+            Atlas.utils.collectTimestamps(fc).length + ' frames');
+          offerSaveToServer(src, fc);
+        }).catch(function (err) { toast(err.message, true); });
+        return;
+      }
       var defaultType = guessMapType(fc);
       atlasMap.addData(fc, { mapType: defaultType }).then(function (src) {
         layerNames[src] = file.name.replace(/\.(csv|geojson|json)$/i, '');
@@ -160,6 +194,17 @@
     if (/Polygon/.test(geomType || '')) return 'choropleth';
     if (/LineString/.test(geomType || '')) return 'route';
     return fc.features.length > 60 ? 'clusters' : 'pins';
+  }
+
+  // Detect long-format time-series CSVs: a header with both a timestamp-like
+  // column and an id-like column, alongside coordinates.
+  function looksLikeTimeSeriesCSV(text) {
+    var nl = text.indexOf('\n');
+    var headerLine = (nl === -1 ? text : text.slice(0, nl)).toLowerCase();
+    var cols = headerLine.split(',').map(function (h) { return h.trim().replace(/^"|"$/g, ''); });
+    var hasTime = cols.some(function (c) { return ['timestamp', 'time', 'date', 'datetime', 'year'].indexOf(c) !== -1; });
+    var hasId = cols.some(function (c) { return ['id', 'feature_id', 'key', 'name'].indexOf(c) !== -1; });
+    return hasTime && hasId;
   }
 
   function offerSaveToServer(src, fc) {
@@ -198,11 +243,25 @@
     var name = document.createElement('div');
     name.className = 'layer-name';
     name.textContent = layerNames[layer.id] || layer.id;
+    if (layer.temporal) {
+      var badge = document.createElement('button');
+      badge.className = 'tl-badge' + (activeTemporalSrc === layer.id ? ' active' : '');
+      badge.textContent = '⏱ ' + layer.frameCount + 'f';
+      badge.title = 'Time-lapse dataset — click to control on the timeline';
+      badge.addEventListener('click', function () {
+        if (activeTemporalSrc === layer.id) return;
+        activateTimeline(layer.id);
+        renderLayerList();
+      });
+      name.appendChild(document.createTextNode(' '));
+      name.appendChild(badge);
+    }
     var remove = document.createElement('button');
     remove.className = 'remove-layer';
     remove.title = 'Remove layer';
     remove.textContent = '✕';
     remove.addEventListener('click', function () {
+      if (activeTemporalSrc === layer.id) deactivateTimeline();
       atlasMap.removeData(layer.id);
       delete layerNames[layer.id];
       delete layerDatasetIds[layer.id];
@@ -294,6 +353,149 @@
   }
 
   // --------------------------------------------------------------------
+  // Time-lapse timeline
+  // --------------------------------------------------------------------
+
+  function formatTimestamp(ts) {
+    if (ts == null) return '—';
+    var d = new Date(ts);
+    if (!isNaN(d.getTime()) && /\d{4}-\d{2}/.test(String(ts))) {
+      return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    return String(ts);
+  }
+
+  function activateTimeline(src) {
+    if (activePlayer) activePlayer.pause();
+    activeTemporalSrc = src;
+    var player = atlasMap.createPlayer(src, {
+      fps: 2,
+      speed: Number($('#tl-speed').value) || 1,
+      loop: true
+    });
+    activePlayer = player;
+
+    var bar = $('#timeline-bar');
+    var scrubber = $('#tl-scrubber');
+    scrubber.min = 0;
+    scrubber.max = Math.max(0, player.frameCount - 1);
+    scrubber.value = player.index;
+    bar.classList.remove('hidden');
+    updateTimelineLabels(player.index, player.timestamps[player.index], player.frameCount);
+    setPlayIcon(false);
+
+    player.on('frame', function (info) {
+      scrubber.value = info.index;
+      updateTimelineLabels(info.index, info.timestamp, info.frameCount);
+    });
+    player.on('play', function () { setPlayIcon(true); });
+    player.on('pause', function () { setPlayIcon(false); });
+    player.on('complete', function () { setPlayIcon(false); });
+  }
+
+  function deactivateTimeline() {
+    if (activePlayer) activePlayer.pause();
+    activePlayer = null;
+    activeTemporalSrc = null;
+    $('#timeline-bar').classList.add('hidden');
+    $('#tl-export-menu').classList.add('hidden');
+  }
+
+  function updateTimelineLabels(index, timestamp, frameCount) {
+    $('#tl-timestamp').textContent = formatTimestamp(timestamp);
+    $('#tl-frame').textContent = 'Frame ' + (index + 1) + ' / ' + frameCount;
+  }
+
+  function setPlayIcon(isPlaying) {
+    $('#tl-play').textContent = isPlaying ? '❚❚' : '▶';
+  }
+
+  function showExportProgress(label, fraction) {
+    var box = $('#tl-progress');
+    box.classList.remove('hidden');
+    $('#tl-progress-label').textContent = label;
+    $('#tl-progress-bar').style.width = Math.round((fraction || 0) * 100) + '%';
+  }
+
+  function hideExportProgress() {
+    $('#tl-progress').classList.add('hidden');
+    $('#tl-progress-bar').style.width = '0%';
+  }
+
+  function runExport(format) {
+    if (!activeTemporalSrc) return;
+    $('#tl-export-menu').classList.add('hidden');
+    if (activePlayer) activePlayer.pause();
+    var name = (layerNames[activeTemporalSrc] || 'timelapse').replace(/\s+/g, '-').toLowerCase();
+    var onProgress = function (p) {
+      if (p.phase === 'capture') {
+        showExportProgress('Capturing frame ' + p.current + ' / ' + p.total, p.current / p.total);
+      } else if (p.phase === 'encode') {
+        showExportProgress('Encoding…', p.progress);
+      }
+    };
+
+    if (format === 'gif') {
+      toast('Rendering animated GIF…');
+      atlasMap.exportTimeLapseGIF(activeTemporalSrc, {
+        frameDelay: 500,
+        filename: name + '.gif',
+        onProgress: onProgress
+      }).then(function () {
+        hideExportProgress();
+        toast('GIF downloaded');
+      }).catch(function (err) {
+        hideExportProgress();
+        toast('GIF export failed: ' + err.message, true);
+      });
+    } else {
+      toast('Recording WebM video…');
+      atlasMap.exportTimeLapseVideo(activeTemporalSrc, {
+        frameDuration: 600,
+        filename: name + '.webm',
+        onProgress: onProgress
+      }).then(function () {
+        hideExportProgress();
+        toast('Video downloaded');
+      }).catch(function (err) {
+        hideExportProgress();
+        toast('Video export failed: ' + err.message, true);
+      });
+    }
+  }
+
+  function wireTimelineControls() {
+    $('#tl-play').addEventListener('click', function () {
+      if (activePlayer) activePlayer.toggle();
+    });
+    $('#tl-next').addEventListener('click', function () {
+      if (activePlayer) { activePlayer.pause(); activePlayer.next(); }
+    });
+    $('#tl-prev').addEventListener('click', function () {
+      if (activePlayer) { activePlayer.pause(); activePlayer.prev(); }
+    });
+    $('#tl-scrubber').addEventListener('input', function (e) {
+      if (activePlayer) { activePlayer.pause(); activePlayer.setIndex(Number(e.target.value)); }
+    });
+    $('#tl-speed').addEventListener('change', function (e) {
+      if (activePlayer) activePlayer.setSpeed(Number(e.target.value) || 1);
+    });
+    $('#tl-export-btn').addEventListener('click', function () {
+      $('#tl-export-menu').classList.toggle('hidden');
+    });
+    $('#tl-export-menu').querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () { runExport(btn.getAttribute('data-format')); });
+    });
+    // Keyboard: space toggles playback when a timeline is active.
+    document.addEventListener('keydown', function (e) {
+      if (e.code === 'Space' && activePlayer && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+        e.preventDefault();
+        activePlayer.toggle();
+      }
+    });
+  }
+
+  // --------------------------------------------------------------------
   // Boot
   // --------------------------------------------------------------------
 
@@ -330,6 +532,7 @@
       atlasMap.exportPNG('atlas-map.png');
     });
     $('#copy-embed').addEventListener('click', copyEmbedLink);
+    wireTimelineControls();
   }).catch(function (err) {
     toast('Failed to start Atlas Studio: ' + err.message, true);
     console.error(err);

@@ -66,6 +66,8 @@ All endpoints return JSON and send permissive CORS headers.
 | `POST /api/datasets` | Store a dataset: `{ id?, name?, description?, geojson }` |
 | `GET /api/datasets/:id` | Fetch a dataset with its GeoJSON |
 | `DELETE /api/datasets/:id` | Delete a dataset |
+| `GET /api/datasets/:id/frames` | Time-lapse: ordered list of frame timestamps |
+| `GET /api/datasets/:id/frame?at=<timestamp>` | Time-lapse: dataset flattened to one moment in time |
 | `GET /api/map?style=dark&maptype=bubble&dataset=acme-locations&value=revenue_musd&center=-96,38&zoom=4` | A renderable "map spec" (style + data + view) consumable by the SDK, plus its embed URL |
 | `GET /embed?…` (same params) | A full HTML page rendering that map — iframe it anywhere |
 
@@ -123,16 +125,81 @@ See it all working: http://localhost:8787/examples/embed-example.html and
 - `Atlas.createMap(container, options) → Promise<AtlasMap>`
 - `AtlasMap`: `addData`, `removeData`, `clearData`, `setMapType`, `setBasemap`,
   `flyToPlace`, `fitToData`, `exportPNG`, `listLayersets`, `remove`, `.map` (raw MapLibre)
+- `AtlasMap` time-lapse: `addTimeSeriesData`, `setFrame`, `getTimestamps`,
+  `createPlayer`, `exportTimeLapseGIF`, `exportTimeLapseVideo`
+- `Atlas.TimeSeriesPlayer`: `play`, `pause`, `toggle`, `next`, `prev`, `setIndex`,
+  `seekFraction`, `setSpeed`, `on('frame'|'play'|'pause'|'complete')`
 - `Atlas.Client`: `geocode`, `getStyles`, `getMapTypes`, `listDatasets`,
   `getDataset`, `createDataset`, `deleteDataset`, `embedUrl`, `health`
 - `Atlas.csvToGeoJSON(text)` — CSV → GeoJSON with lat/lng auto-detection
-- `Atlas.utils` — `toFeatureCollection`, `dataBounds`, `numericProperties`, `parseCSV`
+- `Atlas.csvToTimeSeries(text)` — long-format CSV → time-series GeoJSON (grouped by id)
+- `Atlas.utils` — `toFeatureCollection`, `dataBounds`, `numericProperties`,
+  `parseCSV`, `isTemporal`, `collectTimestamps`, `frameAt`
+
+## Time-lapse interactive maps
+
+Atlas can animate how data changes over time — growing values, moving features,
+or locations that appear progressively. A **temporal dataset** is GeoJSON where
+each feature carries a `timeSeries` array of snapshots:
+
+```json
+{
+  "type": "FeatureCollection",
+  "temporal": { "property": "timestamp", "interpolate": "linear" },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-74.006, 40.7128] },
+      "properties": { "name": "Acme New York HQ" },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 1250 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 1310 } }
+      ]
+    }
+  ]
+}
+```
+
+- `interpolate: "linear"` smoothly tweens numeric properties (and point
+  geometry, for trajectories) between snapshots; `"step"` holds the last value.
+- A feature is hidden until its first snapshot timestamp, so datasets can
+  **progressively reveal** locations as time advances.
+
+In the studio, loading a temporal dataset reveals a **timeline** with
+play/pause, a scrubber, speed control, and one-click export to **animated GIF**
+or **WebM video**. Two samples are seeded: `acme-growth` (headcount growth) and
+`acme-expansion` (national rollout).
+
+```js
+const map = await Atlas.createMap('#map', { baseUrl: '...', style: 'dark' });
+const src = await map.addTimeSeriesData('acme-growth', {
+  mapType: 'bubble', valueProperty: 'employees', interpolate: 'linear'
+});
+const player = map.createPlayer(src, { fps: 2, speed: 1, loop: true });
+player.on('frame', (f) => console.log(f.timestamp, f.index));
+player.play();
+
+await map.exportTimeLapseGIF(src, { filename: 'growth.gif' });
+await map.exportTimeLapseVideo(src, { filename: 'growth.webm' });
+```
+
+Have long-format CSV (one row per feature per timestamp)? Convert it to the
+temporal schema — in the browser via `Atlas.csvToTimeSeries(text)`, or on the
+command line:
+
+```bash
+node server/converters.js examples/acme-expansion.csv out.geojson --interpolate=step
+```
+
+Live demo: http://localhost:8787/examples/time-series-example.html
 
 ## Architecture
 
 ```
 server/index.js     zero-dependency Node HTTP server: static hosting + REST API
 server/presets.js   basemap style + map type catalogs (extend here)
+server/timeseries.js time-lapse helpers: detect, enumerate frames, flatten to a moment
+server/converters.js long-format CSV → time-series GeoJSON (also a CLI)
 server/seed/        built-in sample datasets, seeded into data/ on first run
 public/             Atlas Studio (built on the SDK — same code paths as embedders)
 sdk/atlas-sdk.js    the developer kit: API client + map renderer (MapLibre GL)

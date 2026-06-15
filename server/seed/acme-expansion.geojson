@@ -1,0 +1,80 @@
+{
+  "type": "FeatureCollection",
+  "name": "Acme Corp — National Expansion (Time-Lapse)",
+  "description": "Time-series sample: Acme opens new stores across the USA over eight quarters. Each location first appears on its opening date, so the map progressively reveals features as time advances. Uses step interpolation.",
+  "temporal": { "property": "timestamp", "interpolate": "step" },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme New York HQ", "city": "New York", "state": "NY", "type": "Headquarters" },
+      "geometry": { "type": "Point", "coordinates": [-74.006, 40.7128] },
+      "timeSeries": [
+        { "timestamp": "2023-01-01", "properties": { "employees": 1250, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Boston", "city": "Boston", "state": "MA", "type": "Office" },
+      "geometry": { "type": "Point", "coordinates": [-71.0589, 42.3601] },
+      "timeSeries": [
+        { "timestamp": "2023-04-01", "properties": { "employees": 120, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Chicago", "city": "Chicago", "state": "IL", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-87.6298, 41.8781] },
+      "timeSeries": [
+        { "timestamp": "2023-07-01", "properties": { "employees": 240, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Atlanta", "city": "Atlanta", "state": "GA", "type": "Office" },
+      "geometry": { "type": "Point", "coordinates": [-84.388, 33.749] },
+      "timeSeries": [
+        { "timestamp": "2023-10-01", "properties": { "employees": 180, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Dallas", "city": "Dallas", "state": "TX", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-96.797, 32.7767] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 320, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Denver", "city": "Denver", "state": "CO", "type": "Office" },
+      "geometry": { "type": "Point", "coordinates": [-104.9903, 39.7392] },
+      "timeSeries": [
+        { "timestamp": "2024-04-01", "properties": { "employees": 150, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Phoenix", "city": "Phoenix", "state": "AZ", "type": "Distribution" },
+      "geometry": { "type": "Point", "coordinates": [-112.074, 33.4484] },
+      "timeSeries": [
+        { "timestamp": "2024-07-01", "properties": { "employees": 200, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Los Angeles", "city": "Los Angeles", "state": "CA", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-118.2437, 34.0522] },
+      "timeSeries": [
+        { "timestamp": "2024-10-01", "properties": { "employees": 410, "stores": 1 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Seattle", "city": "Seattle", "state": "WA", "type": "Office" },
+      "geometry": { "type": "Point", "coordinates": [-122.3321, 47.6062] },
+      "timeSeries": [
+        { "timestamp": "2024-10-01", "properties": { "employees": 260, "stores": 1 } }
+      ]
+    }
+  ]
+}

@@ -63,6 +63,41 @@
   </aside>
 
   <main id="map"></main>
+
+  <div id="timeline-bar" class="timeline-bar hidden">
+    <div class="tl-transport">
+      <button id="tl-prev" class="tl-btn" title="Previous frame">⏮</button>
+      <button id="tl-play" class="tl-btn tl-play" title="Play / pause">▶</button>
+      <button id="tl-next" class="tl-btn" title="Next frame">⏭</button>
+    </div>
+    <div class="tl-track">
+      <input id="tl-scrubber" class="tl-scrubber" type="range" min="0" max="0" step="1" value="0">
+      <div class="tl-meta">
+        <span id="tl-timestamp" class="tl-timestamp">—</span>
+        <span id="tl-frame" class="tl-frame"></span>
+      </div>
+    </div>
+    <div class="tl-options">
+      <label class="tl-speed">
+        Speed
+        <select id="tl-speed">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+      <div class="tl-export">
+        <button id="tl-export-btn" class="tl-btn tl-export-btn" title="Export time-lapse">Export ▾</button>
+        <div id="tl-export-menu" class="tl-export-menu hidden">
+          <button data-format="gif">Animated GIF</button>
+          <button data-format="webm">WebM video</button>
+        </div>
+      </div>
+    </div>
+    <div id="tl-progress" class="tl-progress hidden"><span class="tl-progress-track"><span id="tl-progress-bar"></span></span><em id="tl-progress-label"></em></div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
 
   <script src="/sdk/atlas-sdk.js"></script>

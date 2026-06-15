@@ -1,0 +1,86 @@
+{
+  "type": "FeatureCollection",
+  "name": "Acme Corp — Headcount Growth (Time-Lapse)",
+  "description": "Time-series sample: six Acme locations whose employee counts and revenue grow over six quarters (2024 Q1 — 2025 Q2). Demonstrates animating feature property changes over time with linear interpolation.",
+  "temporal": { "property": "timestamp", "interpolate": "linear" },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme New York HQ", "city": "New York", "state": "NY", "type": "Headquarters" },
+      "geometry": { "type": "Point", "coordinates": [-74.006, 40.7128] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 1250, "revenue_musd": 410 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 1310, "revenue_musd": 432 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 1395, "revenue_musd": 468 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 1440, "revenue_musd": 495 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 1510, "revenue_musd": 528 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 1605, "revenue_musd": 567 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Chicago", "city": "Chicago", "state": "IL", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-87.6298, 41.8781] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 620, "revenue_musd": 175 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 668, "revenue_musd": 188 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 705, "revenue_musd": 202 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 760, "revenue_musd": 221 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 812, "revenue_musd": 240 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 870, "revenue_musd": 262 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Dallas", "city": "Dallas", "state": "TX", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-96.797, 32.7767] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 580, "revenue_musd": 160 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 640, "revenue_musd": 178 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 712, "revenue_musd": 204 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 805, "revenue_musd": 239 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 902, "revenue_musd": 281 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 1010, "revenue_musd": 328 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Los Angeles", "city": "Los Angeles", "state": "CA", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-118.2437, 34.0522] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 710, "revenue_musd": 230 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 738, "revenue_musd": 241 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 775, "revenue_musd": 258 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 802, "revenue_musd": 273 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 845, "revenue_musd": 295 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 905, "revenue_musd": 322 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Seattle", "city": "Seattle", "state": "WA", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-122.3321, 47.6062] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 450, "revenue_musd": 135 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 505, "revenue_musd": 152 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 560, "revenue_musd": 174 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 628, "revenue_musd": 201 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 690, "revenue_musd": 228 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 765, "revenue_musd": 261 } }
+      ]
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Acme Atlanta", "city": "Atlanta", "state": "GA", "type": "Regional HQ" },
+      "geometry": { "type": "Point", "coordinates": [-84.388, 33.749] },
+      "timeSeries": [
+        { "timestamp": "2024-01-01", "properties": { "employees": 540, "revenue_musd": 140 } },
+        { "timestamp": "2024-04-01", "properties": { "employees": 572, "revenue_musd": 151 } },
+        { "timestamp": "2024-07-01", "properties": { "employees": 610, "revenue_musd": 166 } },
+        { "timestamp": "2024-10-01", "properties": { "employees": 655, "revenue_musd": 184 } },
+        { "timestamp": "2025-01-01", "properties": { "employees": 705, "revenue_musd": 205 } },
+        { "timestamp": "2025-04-01", "properties": { "employees": 760, "revenue_musd": 229 } }
+      ]
+    }
+  ]
+}

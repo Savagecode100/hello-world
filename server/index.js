@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { BASEMAP_STYLES, MAP_TYPES, getStyle, getMapType } from './presets.js';
+import { isTemporal, collectTimestamps, validateTimeSeries, frameAt } from './timeseries.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -53,12 +54,15 @@ async function ensureDataDir() {
       await fs.access(target);
     } catch {
       const geojson = JSON.parse(await fs.readFile(path.join(SEED_DIR, file), 'utf8'));
+      const temporal = isTemporal(geojson);
       const record = {
         id,
         name: geojson.name || id,
         description: geojson.description || 'Built-in sample dataset',
         created: new Date().toISOString(),
         featureCount: geojson.features?.length ?? 0,
+        temporal,
+        frameCount: temporal ? collectTimestamps(geojson).length : 0,
         geojson
       };
       await fs.writeFile(target, JSON.stringify(record));
@@ -287,6 +291,14 @@ async function handleAPI(req, res, url) {
       sendJSON(res, 400, { error: invalid });
       return;
     }
+    const temporal = isTemporal(geojson);
+    if (temporal) {
+      const tsInvalid = validateTimeSeries(geojson);
+      if (tsInvalid) {
+        sendJSON(res, 400, { error: tsInvalid });
+        return;
+      }
+    }
     const id = body.id && /^[A-Za-z0-9_-]+$/.test(body.id) ? body.id : crypto.randomBytes(6).toString('hex');
     const record = {
       id,
@@ -294,6 +306,8 @@ async function handleAPI(req, res, url) {
       description: body.description || '',
       created: new Date().toISOString(),
       featureCount: geojson.type === 'FeatureCollection' ? geojson.features.length : 1,
+      temporal,
+      frameCount: temporal ? collectTimestamps(geojson).length : 0,
       geojson
     };
     await fs.writeFile(datasetPath(id), JSON.stringify(record));
@@ -323,6 +337,54 @@ async function handleAPI(req, res, url) {
       }
       return;
     }
+  }
+
+  // Temporal: list the ordered frame timestamps for a dataset.
+  const framesMatch = route.match(/^\/api\/datasets\/([A-Za-z0-9_-]+)\/frames$/);
+  if (framesMatch && req.method === 'GET') {
+    const id = framesMatch[1];
+    const record = await readDataset(id);
+    if (!record) {
+      sendJSON(res, 404, { error: `Dataset not found: ${id}` });
+      return;
+    }
+    if (!isTemporal(record.geojson)) {
+      sendJSON(res, 400, { error: `Dataset is not temporal: ${id}` });
+      return;
+    }
+    const timestamps = collectTimestamps(record.geojson);
+    sendJSON(res, 200, {
+      id,
+      interpolate: record.geojson.temporal?.interpolate || 'step',
+      frameCount: timestamps.length,
+      timestamps
+    });
+    return;
+  }
+
+  // Temporal: return the dataset flattened to one frame (timestamp).
+  const frameMatch = route.match(/^\/api\/datasets\/([A-Za-z0-9_-]+)\/frame$/);
+  if (frameMatch && req.method === 'GET') {
+    const id = frameMatch[1];
+    const record = await readDataset(id);
+    if (!record) {
+      sendJSON(res, 404, { error: `Dataset not found: ${id}` });
+      return;
+    }
+    if (!isTemporal(record.geojson)) {
+      sendJSON(res, 400, { error: `Dataset is not temporal: ${id}` });
+      return;
+    }
+    const timestamps = collectTimestamps(record.geojson);
+    if (timestamps.length === 0) {
+      sendJSON(res, 400, { error: 'Dataset has no frames' });
+      return;
+    }
+    const at = url.searchParams.get('at') || timestamps[timestamps.length - 1];
+    const interpolate = url.searchParams.get('interpolate') || record.geojson.temporal?.interpolate;
+    const geojson = frameAt(record.geojson, at, interpolate);
+    sendJSON(res, 200, { id, at, geojson });
+    return;
   }
 
   // Map spec: a renderable description of a map, consumable by the SDK.

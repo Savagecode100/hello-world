@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas — Time-Lapse Map Example</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.5 system-ui, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .controls {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(15, 23, 42, 0.92); color: #e2e8f0;
+    border: 1px solid #334155; border-radius: 12px; padding: 10px 16px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.45); z-index: 10; min-width: 420px;
+  }
+  .controls button {
+    background: #283548; color: #e2e8f0; border: 1px solid #334155;
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit;
+  }
+  .controls button:hover { border-color: #38bdf8; }
+  .controls input[type=range] { flex: 1; accent-color: #38bdf8; }
+  .stamp { font-weight: 600; min-width: 110px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="controls">
+  <button id="play">▶</button>
+  <input id="scrubber" type="range" min="0" max="0" value="0" step="1">
+  <span class="stamp" id="stamp">—</span>
+  <button id="gif">GIF</button>
+</div>
+
+<!-- Point baseUrl at your running Atlas server -->
+<script src="http://localhost:8787/sdk/atlas-sdk.js"></script>
+<script>
+  Atlas.createMap('#map', {
+    baseUrl: 'http://localhost:8787',
+    style: 'dark',
+    center: [-96, 38.5],
+    zoom: 4
+  }).then(function (map) {
+    // Load the seeded time-lapse dataset as a bubble map sized by employees.
+    return map.addTimeSeriesData('acme-growth', {
+      mapType: 'bubble',
+      valueProperty: 'employees',
+      interpolate: 'linear'
+    }).then(function (src) {
+      var player = map.createPlayer(src, { fps: 2, speed: 1, loop: true });
+      var scrubber = document.getElementById('scrubber');
+      var stamp = document.getElementById('stamp');
+      var playBtn = document.getElementById('play');
+
+      scrubber.max = player.frameCount - 1;
+
+      player.on('frame', function (info) {
+        scrubber.value = info.index;
+        stamp.textContent = new Date(info.timestamp).toLocaleDateString(undefined, {
+          year: 'numeric', month: 'short'
+        });
+      });
+      player.on('play', function () { playBtn.textContent = '❚❚'; });
+      player.on('pause', function () { playBtn.textContent = '▶'; });
+
+      playBtn.addEventListener('click', function () { player.toggle(); });
+      scrubber.addEventListener('input', function (e) {
+        player.pause();
+        player.setIndex(Number(e.target.value));
+      });
+      document.getElementById('gif').addEventListener('click', function () {
+        player.pause();
+        map.exportTimeLapseGIF(src, { frameDelay: 500, filename: 'acme-growth.gif' });
+      });
+
+      // Render the first frame.
+      player.setIndex(0);
+    });
+  }).catch(function (err) {
+    document.body.textContent = 'Failed to load map: ' + err.message;
+  });
+</script>
+</body>
+</html>
